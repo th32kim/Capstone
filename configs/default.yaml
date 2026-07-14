@@ -1,0 +1,209 @@
+# Hindsight — default configuration (Track A, on-device profile)
+#
+# PROVENANCE TAGS — every value carries one. Do not add a value without one.
+#   [REPORT]  taken from the submitted Detailed Design report. Changing it is a design delta.
+#   [TUNE]    a starting point. MUST be swept on the labelled corpus before any number is reported.
+#   [ASSUMED] not measured, not derived. Must be replaced by a measurement or removed.
+#   [DERIVED] follows from other values; asserted in code, never typed twice.
+
+seed: 1337                      # determinism is non-negotiable
+on_device_only: true            # [REPORT] NFS4. cloud validator is disabled under this flag.
+
+clock:
+  decision_window_s: 0.5        # [REPORT] Table 3.2-8
+  audio_chunk_ms: 20            # [REPORT] frozen data contract
+  audio_sample_rate: 16000      # [REPORT] FS2 requires >= 16 kHz
+
+source:
+  target_fps: null              # null = native. set to downsample video decode.
+  max_long_edge_px: 1280        # decode-time downscale cap; detectors downscale further
+
+# ----------------------------------------------------------------------------
+# TIER 1 — the first guard. Cheap, deterministic, runs on 100% of the footage.
+# ----------------------------------------------------------------------------
+detectors:
+  scene_change:
+    enabled: true
+    cadence: 1                  # [REPORT] every frame
+    downscale: [160, 90]        # [TUNE]
+    hist_bins: [8, 8, 8]        # [TUNE] HSV
+    method: correl              # cv2.HISTCMP_CORREL
+  motion:
+    enabled: true
+    cadence: 1                  # [REPORT] every frame
+    ego_compensate: true        # [DELTA D-2] residual motion, not raw frame-diff. See DESIGN_DELTAS.
+    downscale: [160, 90]        # [TUNE]
+    morph_kernel: 3             # [TUNE]
+    norm_percentiles: [5, 95]   # [TUNE] running robust normaliser
+  face_presence:
+    enabled: true
+    cadence: 24                 # [REPORT] ~1 Hz @ 24 fps. holds last value between evaluations.
+    backend: opencv_dnn         # opencv_dnn (res10 SSD) | mediapipe
+    min_confidence: 0.6         # [TUNE]
+    area_weight: 0.3            # [TUNE] score = f(max_conf, n_faces, largest_face_area_frac)
+  text_presence:
+    enabled: true
+    cadence: 48                 # [REPORT] ~0.5 Hz @ 24 fps
+    backend: east               # east | mser_swt
+    min_confidence: 0.5         # [TUNE]
+  voice_activity:
+    enabled: true
+    cadence: 1
+    backend: webrtcvad          # [REPORT] with an energy fallback
+    aggressiveness: 2           # [TUNE] 0-3
+    frame_ms: 30                # webrtcvad accepts 10/20/30
+    fallback: energy            # if webrtcvad is unavailable/throws -> RMS gate, AND SAY SO in the mask
+  audio_energy:
+    enabled: true
+    cadence: 1
+    norm_percentiles: [5, 95]   # [TUNE] running, causal
+  dwell:
+    enabled: false              # [DELTA D-3] optional. GoPro/IMU only. Availability-masked elsewhere.
+    source: ego_motion          # ego_motion | gpmf     (gpmf is OFFLINE-ONLY - see DESIGN_DELTAS D-3)
+    settle_threshold_dps: 15.0  # [TUNE] angular velocity below which we call it "dwelling"
+    settle_hold_s: 1.0          # [TUNE] must stay settled this long, after having been above
+
+fusion:
+  method: linear                # [REPORT] weighted linear sum
+  # [TUNE] — THESE ARE A STARTING POINT, NOT A RESULT.
+  # Voice carries the highest weight per the report's rationale. Sweep on the corpus.
+  # Weights are renormalised over the AVAILABLE detectors (mask applied) so that an
+  # audio-only or video-only window does not collapse to ~0.
+  weights:
+    voice_activity: 0.30
+    face_presence:  0.20
+    scene_change:   0.15
+    text_presence:  0.15
+    audio_energy:   0.10
+    motion:         0.10
+    dwell:          0.00        # raise only if D-3 is adopted; then re-sweep everything
+  renormalise_over_mask: true   # [REPORT] missing-modality handling
+  smoothing_windows: 1          # [TUNE] 1 = none. hysteresis already does most of this work.
+
+# ----------------------------------------------------------------------------
+# GATING — the four-state hysteresis FSM. [REPORT] Table 3.2-8 throughout.
+# ----------------------------------------------------------------------------
+gating:
+  theta_on: 0.58                # [REPORT] but see DESIGN_DELTAS D-1: with a validator behind the
+                                #          gate, this should be swept DOWNWARD to favour recall.
+  theta_off: 0.38               # [REPORT] 0.20 hysteresis gap
+  activation_persistence: 2     # [REPORT] windows (1.0 s)
+  deactivation_persistence: 3   # [REPORT] windows (1.5 s)
+  pre_roll_s: 2.0               # [REPORT]
+  post_roll_s: 3.0              # [REPORT]
+  min_active_s: 3.0             # [REPORT] measured on the ACTIVE span, NOT the retained span
+  merge_gap_s: 2.0              # [REPORT]
+  max_duration_s: 60.0          # [REPORT]
+  # [DERIVED] assert, never type twice:
+  #   min retained = min_ACTIVE_possible(1.5) + pre_roll + post_roll = 6.5 s
+  #   max segments per session = floor(reduction_budget * T / 6.5)   -> <= 55 for a 30-min session
+  emit_shadow: false            # eval only. logs [theta_shadow, theta_on) misses without retaining them.
+  theta_shadow: 0.40            # [TUNE] only meaningful when emit_shadow is true
+
+targets:
+  reduction_min: 0.80           # [REPORT] retain <= 20% of the session
+  f1_min: 0.70                  # [REPORT] FS5
+  precision_min: 0.70           # [REPORT] operating-point constraint
+  recall_min: 0.70              # [REPORT] operating-point constraint
+
+# ----------------------------------------------------------------------------
+# CASCADE — the second guard. [DELTA D-1] Not in the submitted report.
+# ----------------------------------------------------------------------------
+cascade:
+  enabled: true
+  validator: clip_local         # null | clip_local | llm_claude
+  score_field: salience_peak    # salience_peak | salience_mean
+  tau_hi: 0.75                  # [TUNE] >= tau_hi  -> AUTO-ACCEPT, no model call. This is the
+                                #        knob that trades $ against precision. Sweep it.
+  evidence:
+    n_keyframes: 3              # [ASSUMED] post-pre-roll, peak, pre-post-roll
+    max_long_edge_px: 512       # bounded cost
+    jpeg_quality: 70
+    include_transcript: true    # cheap ASR on the uncertain band only
+    asr_model: tiny.en          # cached by content hash; Tier-2 reuses it and upgrades to base.en
+    include_detector_evidence: true   # the 6 scores + mask + duration + peak/mean
+  clip_local:
+    model: ViT-B/32
+    prompts_file: configs/prompts.yaml
+    margin: 0.05                # [TUNE] keep if (max_pos - max_neg) > margin
+  llm_claude:
+    model: claude-sonnet-4-6
+    max_tokens: 512
+    strict_json: true
+    retries_on_parse_failure: 1
+    on_failure: keep            # FAIL OPEN. never lose a memory to a flaky API.
+  budget:
+    max_calls_per_session: 100  # [ASSUMED] a guard rail, not a design value
+    max_cost_usd: 1.00          # on breach: log, stop calling, fail open for the remainder
+  cache:
+    enabled: true               # sha256(segment_bytes + config_hash) -> Verdict. re-eval must cost $0.
+    path: out/cache/verdicts
+
+# ----------------------------------------------------------------------------
+# TIER 2 — expensive. Runs ONLY on accepted segments. [REPORT] throughout.
+# ----------------------------------------------------------------------------
+tier2:
+  asr:
+    model: base.en              # [REPORT] faster-whisper, int8
+    compute_type: int8
+  caption:
+    model: Salesforce/blip-image-captioning-base   # [REPORT] BLIP-base
+    keyframe: peak              # one keyframe
+  ocr:
+    enabled: true               # [REPORT] FS8 is NON-ESSENTIAL. safe to disable if it costs too much.
+    backend: tesseract          # [REPORT] Track A. (Track B uses Apple Vision.)
+    max_keyframes: 3
+  ner:
+    model: en_core_web_sm       # [REPORT] spaCy
+  summarize:
+    method: extractive          # [REPORT] TextRank. DEFAULT because it cannot hallucinate a memory.
+    k_sentences: 2              # [REPORT]
+    damping: 0.85               # [REPORT]
+    max_iter: 30                # [REPORT]
+  embed:
+    model: sentence-transformers/all-MiniLM-L6-v2   # [REPORT]
+    dim: 384                    # [REPORT] *** FROZEN P3<->P4 INTERFACE. assert. never adapt. ***
+    normalize: true             # L2-normalise so cosine == inner product
+
+# ----------------------------------------------------------------------------
+# STORE — SQLite is the SOURCE OF TRUTH. FAISS is a DERIVED CACHE. [REPORT]
+# ----------------------------------------------------------------------------
+store:
+  db_path: out/store/hindsight.db
+  index_path: out/store/index.faiss
+  faiss:
+    index: IndexHNSWFlat        # [REPORT]
+    M: 16                       # [REPORT]
+    ef_construction: 200        # [REPORT]
+    ef_search: 64               # [REPORT] the knee at 48-64; recall@10 ~0.975. VERIFY by sweep.
+    metric: inner_product       # over L2-normalised vectors
+  oracle_index: IndexFlat       # exact. this is how recall@k is MEASURED, not assumed.
+  kg:
+    max_hops: 2                 # [REPORT] bounded BFS
+    branching_cap: 8            # [REPORT] b ~ 8 -> <= ~64 nodes per seed
+    relations: [CO_OCCURS]      # [REPORT] derived free from shared mentions. ALWAYS populated.
+    opportunistic: [WORKS_AT, LOCATED_IN]   # rule pass over co-mentions. LEAVE EMPTY rather than fake.
+  retention:
+    tombstone_on_delete: true   # [REPORT] the cross-store deletion story. see §4.5.
+    filter_non_live: true       # retrieval MUST drop any embedding_id not live in SQLite
+    rebuild_every_n_deletes: 50 # [TUNE]
+
+retrieval:
+  k: 5                          # [REPORT] FS12 top-k
+  dense_candidates: 50          # [REPORT] n=50 from HNSW
+  rrf_k: 60                     # [REPORT] Reciprocal Rank Fusion constant
+  kg_rank_by: recency_x_degree  # [REPORT]
+  constraints: [time, person, place]   # [REPORT] applied post-fusion
+  latency_budget_ms: 2000       # [REPORT] NFS2: <= 2 s at >= 10,000 memories
+
+eval:
+  match_iou: 0.5                # [TUNE] segment-level match threshold for P/R/F1
+  require_dense_labels_for_recall: true   # refuse to compute recall from detector-assisted labels
+  sweep:
+    theta_on:  [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.58, 0.62, 0.66, 0.70]
+    theta_off_gap: 0.20         # [REPORT] held fixed; theta_off = theta_on - gap
+    tau_hi:    [0.65, 0.70, 0.75, 0.80, 0.85, 1.01]   # 1.01 == "never auto-accept"
+  index_bench:
+    corpus_sizes: [1000, 10000, 100000]
+    ef_search:    [8, 16, 32, 48, 64, 96, 128]
+    synthetic_note: "vectors MUST come from embedded real sentences, not uniform random draws"

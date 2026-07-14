@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hindsight"
+version = "0.1.0"
+description = "Hindsight Track A — passive AI memory from first-person video (Python reference pipeline)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+
+# Runtime deps are pinned in requirements.txt. The heavy ML / CV / decode stack
+# (opencv, torch, faiss, av, spacy, faster-whisper, open-clip, webrtcvad, tesseract)
+# is imported LAZILY inside the backend that needs it, so the package and the CLI
+# import and run without them. A stage whose backend is missing reports it honestly
+# (availability mask / NOT MEASURED) — it never fabricates a number. See CLAUDE.md §1.
+dependencies = [
+  "numpy>=1.26",
+  "PyYAML>=6.0",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+# `pip install -e .[full]` pulls the real pipeline; see requirements.txt for the notes.
+full = [
+  "opencv-python>=4.9",
+  "webrtcvad>=2.0.10",
+  "soundfile>=0.12",
+  "librosa>=0.10",
+  "av>=12.0",
+  "faster-whisper>=1.0",
+  "transformers>=4.40",
+  "torch>=2.2",
+  "Pillow>=10.0",
+  "pytesseract>=0.3.10",
+  "spacy>=3.7",
+  "sentence-transformers>=2.7",
+  "open-clip-torch>=2.24",
+  "anthropic>=0.34",
+  "faiss-cpu>=1.8",
+  "networkx>=3.2",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "matplotlib>=3.8",
+  "scikit-learn>=1.4",
+  "pandas>=2.2",
+]
+dev = ["pytest>=8.0", "ruff>=0.4", "black>=24.0", "mypy>=1.9"]
+
+[project.scripts]
+hindsight = "hindsight.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["hindsight*"]
+
+[tool.setuptools.package-data]
+hindsight = ["store/schema.sql"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

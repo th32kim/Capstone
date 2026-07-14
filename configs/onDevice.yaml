@@ -1,0 +1,6 @@
+# NFS4 profile — the DEFAULT and the normal path, not a fallback.
+# Nothing on the gating or validation path may open a socket under this profile.
+extends: default.yaml
+on_device_only: true
+cascade:
+  validator: clip_local

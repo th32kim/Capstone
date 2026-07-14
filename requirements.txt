@@ -1,0 +1,45 @@
+# core
+numpy>=1.26
+opencv-python>=4.9
+PyYAML>=6.0
+pydantic>=2.6
+typer>=0.12                 # CLI
+
+# audio
+webrtcvad>=2.0.10
+soundfile>=0.12
+librosa>=0.10
+av>=12.0                    # decoding; also the cleanest way at GoPro GPMF via container streams
+
+# tier-1
+mediapipe>=0.10             # optional face backend
+
+# tier-2
+faster-whisper>=1.0
+transformers>=4.40
+torch>=2.2
+Pillow>=10.0
+pytesseract>=0.3.10         # needs the tesseract binary: apt install tesseract-ocr / brew install tesseract
+spacy>=3.7                  # + python -m spacy download en_core_web_sm
+sentence-transformers>=2.7
+
+# cascade
+open-clip-torch>=2.24       # local zero-shot validator
+anthropic>=0.34             # opt-in cloud validator
+
+# store + retrieval
+faiss-cpu>=1.8
+networkx>=3.2
+fastapi>=0.110
+uvicorn>=0.29
+
+# eval / figures
+matplotlib>=3.8
+scikit-learn>=1.4           # metrics only
+pandas>=2.2
+
+# dev
+pytest>=8.0
+ruff>=0.4
+black>=24.0
+mypy>=1.9

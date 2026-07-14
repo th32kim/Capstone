@@ -1,0 +1,27 @@
+# Prompt bank for the local CLIP zero-shot validator (cascade.validator = clip_local).
+# In config, not in code, because these ARE tunable parameters and will be swept.
+# keep = (max similarity over `positive`) - (max similarity over `negative`) > cascade.clip_local.margin
+
+positive:
+  - "two people having a conversation"
+  - "a person talking to the camera"
+  - "a person's face in close view"
+  - "a whiteboard with writing or diagrams on it"
+  - "a computer screen showing text or code"
+  - "someone demonstrating or pointing at something"
+  - "a printed document or book being read"
+  - "a group of people in a meeting"
+  - "a sign or label with legible text"
+  - "someone handing over or showing an object"
+
+negative:
+  - "an empty hallway"
+  - "a blank wall"
+  - "the floor"
+  - "the ceiling"
+  - "walking down a corridor"
+  - "an empty room with no people"
+  - "a blurry out-of-focus image"
+  - "the sky"
+  - "an empty desk with nobody at it"
+  - "a closed door"

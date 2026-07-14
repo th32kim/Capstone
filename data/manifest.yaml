@@ -1,0 +1,24 @@
+# One entry per corpus clip. Tracked in git; the .mp4s themselves are not.
+# `labelled` and `label_mode` gate what eval/ is allowed to compute — see docs/CORPUS.md.
+clips:
+  - id: clip01
+    path: data/corpus/clip01.mp4
+    source_kind: gopro          # gopro | glasses | iphone | webcam
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [conversation, walking, reading_screen]
+    consent: "verbal, all participants, 2026-07-xx"
+    labelled: false
+    label_mode: null            # dense | assisted   (recall REQUIRES dense — see docs/CORPUS.md)
+    labellers: []
+    held_out: false             # at least one clip must be held_out AND dense
+
+  - id: sample                  # bundled test footage (sample-videos/), gitignored .mp4
+    path: sample-videos/sample.mp4
+    source_kind: iphone         # 720x1280 portrait, 50 fps, 44.1 kHz
+    duration_s: 60
+    scenes: [unlabelled]
+    consent: "sample footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false

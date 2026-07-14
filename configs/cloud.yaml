@@ -1,0 +1,11 @@
+# OPT-IN profile. Sends <=3 downscaled keyframes + a short transcript of UNCERTAIN-BAND segments
+# to the Claude API. This is a departure from NFS4's on-device-only mode and requires explicit,
+# informed consent from every person in the footage. The CLI prints a consent banner and requires
+# an interactive confirmation before the first call.
+extends: default.yaml
+on_device_only: false
+cascade:
+  validator: llm_claude
+  budget:
+    max_calls_per_session: 100
+    max_cost_usd: 1.00

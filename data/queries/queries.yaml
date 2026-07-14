@@ -1,0 +1,23 @@
+# The labelled query set. This is what eval/retrieval.py scores against:
+# precision@5, recall@10 (vs the exact Flat oracle), nDCG@10, MRR — and the
+# dense-only / KG-only / RRF ablation that has to EARN the two-channel design.
+#
+# Cover all four query categories the report names, or the ablation proves nothing:
+#   temporal | entity | visual-recall | multi-hop
+queries:
+  - id: q001
+    text: "what did the professor say about the data contract"
+    category: entity
+    relevant: []            # [segment_id, ...] — judged by a human against the corpus
+  - id: q002
+    text: "who was I with at the lab last Tuesday"
+    category: multi-hop     # needs BOTH channels: entity resolution + a time constraint
+    relevant: []
+  - id: q003
+    text: "the whiteboard with the block diagram on it"
+    category: visual-recall # FS8's category — served via caption-text through the primary 384-d path
+    relevant: []
+  - id: q004
+    text: "yesterday morning"
+    category: temporal
+    relevant: []
