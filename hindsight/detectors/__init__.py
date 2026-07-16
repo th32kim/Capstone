@@ -55,7 +55,8 @@ def build_detectors(cfg: Config) -> list[object]:
         c = d["face_presence"]
         built["face_presence"] = FacePresenceDetector(
             cadence=c["cadence"], backend=c.get("backend", "opencv_dnn"),
-            min_confidence=c.get("min_confidence", 0.6), area_weight=c.get("area_weight", 0.3))
+            min_confidence=c.get("min_confidence", 0.6), area_weight=c.get("area_weight", 0.3),
+            model_path=c.get("model_path"))
     if d.get("text_presence", {}).get("enabled"):
         c = d["text_presence"]
         built["text_presence"] = TextPresenceDetector(
@@ -134,6 +135,7 @@ def run_detectors(source, cfg: Config) -> DetectResult:
 
     notes: dict[str, object] = {
         "vad_backend": getattr(by_name.get("voice_activity"), "last_backend", "n/a"),
+        "motion_backend": getattr(by_name.get("motion"), "last_backend", "n/a"),
         "masked_off_all_windows": sorted(n for n, off in masked_off.items() if off),
         "n_frames": len(frames),
         "n_chunks": len(chunks),

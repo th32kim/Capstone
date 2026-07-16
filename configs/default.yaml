@@ -15,8 +15,18 @@ clock:
   audio_sample_rate: 16000      # [REPORT] FS2 requires >= 16 kHz
 
 source:
-  target_fps: null              # null = native. set to downsample video decode.
-  max_long_edge_px: 1280        # decode-time downscale cap; detectors downscale further
+  target_fps: 4                 # [TUNE, measured D-2] global 4K-SAFE default (corpus is a MIX of
+                                # 720p/1080p/4K). Runtime is decode-bound, so this is a MEMORY lever:
+                                # the runner materialises the whole frame list at ~2.8 MB/frame, and a
+                                # 4K clip at native 60 fps needs ~13 GB. D1/D2 are 2 Hz-effective (one
+                                # frame per 0.5 s window) and D3/D4 <= 1 Hz, so 4 fps loses no signal.
+                                # Precedence: CLI --fps > per-clip manifest > here. NOTE: bounds memory
+                                # for short/medium clips (~1.2 GB at 720p-equiv); a 30-min 4K clip still
+                                # needs the runner to STREAM, not materialise (shared Tier-1 fix).
+  max_long_edge_px: 1280        # decode-time downscale cap. NORMALISES the resolution mix: 4K and 1080p
+                                # both come down to 1280 long edge, 720p stays native -> detectors (and
+                                # per-frame RAM) are resolution-agnostic (measured motion corr 0.999,
+                                # 4K vs 720p). Also bounds D4/OCR text legibility. 1280 ~= 2.8 MB/frame.
 
 # ----------------------------------------------------------------------------
 # TIER 1 — the first guard. Cheap, deterministic, runs on 100% of the footage.
@@ -36,11 +46,15 @@ detectors:
     morph_kernel: 3             # [TUNE]
     norm_percentiles: [5, 95]   # [TUNE] running robust normaliser
   face_presence:
-    enabled: true
+    enabled: true               # kept true so it masks off HONESTLY (renormalised out, never scored 0).
     cadence: 24                 # [REPORT] ~1 Hz @ 24 fps. holds last value between evaluations.
-    backend: opencv_dnn         # opencv_dnn (res10 SSD) | mediapipe
-    min_confidence: 0.6         # [TUNE]
-    area_weight: 0.3            # [TUNE] score = f(max_conf, n_faces, largest_face_area_frac)
+    backend: yunet              # [DELTA D-8] yunet (OpenCV FaceDetectorYN) | mediapipe. res10 caffe is
+                                #             dead on OpenCV 5 (Caffe importer removed). See DESIGN_DELTAS.
+    # model_path is UNSET by default -> face is unavailable -> masks off -> STABLE operating point.
+    # To ENABLE face, load `configs/faces.yaml` (it sets model_path). That shifts the gate operating
+    # point (D-8) and needs P2's joint theta/weights re-sweep first, so it is opt-in, not the default.
+    min_confidence: 0.6         # [TUNE] -> YuNet score_threshold when enabled
+    area_weight: 0.3            # [TUNE] score = f(max_conf, largest_face_area_frac)
   text_presence:
     enabled: true
     cadence: 48                 # [REPORT] ~0.5 Hz @ 24 fps

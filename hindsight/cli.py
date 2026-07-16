@@ -50,10 +50,16 @@ def resolve_source(clip: str, cfg, fps: float | None = None):
         src = demo_source()
         src.name = clip
         return src, "synthetic"
-    target_fps = fps if fps is not None else cfg.get("source.target_fps", None)
-    max_edge = cfg.get("source.max_long_edge_px", 1280)
-    kw = dict(target_fps=target_fps, max_long_edge_px=max_edge)
     entry = _clip_entry(clip)
+    # decode-param precedence: explicit CLI --fps > per-clip manifest > config default. A 4K clip
+    # materialises ~2.8 MB/frame; the runner holds the whole frame list, so target_fps is the
+    # memory lever (measured, DESIGN_DELTAS D-2) and belongs per-clip, not just on the CLI.
+    entry_fps = (entry or {}).get("target_fps")
+    entry_edge = (entry or {}).get("max_long_edge_px")
+    target_fps = fps if fps is not None else (
+        entry_fps if entry_fps is not None else cfg.get("source.target_fps", None))
+    max_edge = entry_edge if entry_edge is not None else cfg.get("source.max_long_edge_px", 1280)
+    kw = dict(target_fps=target_fps, max_long_edge_px=max_edge)
     if entry and entry.get("path") and Path(entry["path"]).exists():
         return ClipSource(entry["path"], name=clip, **kw), entry.get("source_kind", "clip")
     cand = Path("data/corpus") / f"{clip}.mp4"
@@ -139,6 +145,9 @@ def detect(clip: str, config: str = typer.Option("default", "--config", "-c"),
     typer.echo(f"per-frame cost @ {fps:.2f} fps:  {cost}  = {total:.2f} ms/frame  ({duty:.1f}% duty)")
     if res.notes.get("vad_backend") == "energy_fallback":
         typer.echo("  note: voice_activity used the RMS ENERGY FALLBACK (webrtcvad unavailable)")
+    if res.notes.get("motion_backend") == "numpy_phasecorr":
+        typer.echo("  note: motion used the NUMPY phase-correlation FALLBACK (cv2 unavailable); "
+                   "its scores are not comparable to cv2 runs (DESIGN_DELTAS D-2)")
     if res.notes.get("masked_off_all_windows"):
         typer.echo(f"  masked off (backend unavailable): {res.notes['masked_off_all_windows']}")
 

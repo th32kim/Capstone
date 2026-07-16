@@ -8,9 +8,17 @@ robust-normalised (running 5th/95th, causal).
 The raw global-motion magnitude is kept (`raw_global_motion`, last value + history) because
 D7 (dwell) needs it: dwell = that magnitude dropping below threshold after a spell above it.
 
-cv2.phaseCorrelate (subpixel, Hanning-windowed) is used when OpenCV is present; otherwise a
-pure-numpy FFT phase correlation gives an integer-pixel shift. Both are genuinely
-ego-compensating.
+`cv2.phaseCorrelate` (subpixel) is used when OpenCV is present; otherwise a pure-numpy FFT
+phase correlation gives an integer-pixel shift. Both are genuinely ego-compensating, but they
+are NOT equivalent — validated on plane_1.MP4 (4K POV, DESIGN_DELTAS D-2): cv2's subpixel peak,
+even after rounding to an integer roll, yields ~35 % lower mean residual than the numpy path
+(15.6 vs 24.8) because its centroid refinement lands a better integer shift. OpenCV is a core
+dependency; the numpy path is a genuine but weaker fallback. Two things measured and rejected on
+that footage, so they are deliberately absent: (i) a Hanning window on the FFT — no accuracy gain,
+marginally worse; (ii) a subpixel `warpAffine` instead of the integer `np.roll` — <3 % residual
+change. The real limiter is that consecutive windows sample frames ~0.5 s apart (D2 sees one frame
+per 0.5 s window, so its effective rate is 2 Hz regardless of decode fps): at that spacing head
+motion is large and non-translational, which caps how much any translational model can compensate.
 """
 
 from __future__ import annotations
@@ -50,6 +58,10 @@ class MotionDetector:
         self._norm = RunningPercentileNormalizer(*norm_percentiles)
         self.raw_global_motion: float = 0.0
         self.global_motion_history: list[float] = []
+        # Which ego-motion path ran, recorded so the runner/eval never SILENTLY mixes cv2- and
+        # numpy-computed scores (they disagree on the integer shift ~88% of the time -> materially
+        # different residuals; DESIGN_DELTAS D-2). Same "be loud about the fallback" contract as VAD.
+        self.last_backend = "uninitialised"
 
     def score(self, w: Window) -> float | None:
         if not w.frames:
@@ -68,8 +80,12 @@ class MotionDetector:
             if cv2 is not None:
                 (sx, sy), _ = cv2.phaseCorrelate(prev.astype(np.float64), gray.astype(np.float64))
                 dx, dy = int(round(sx)), int(round(sy))
+                self.last_backend = "cv2_phasecorr"
             else:
                 dy, dx = _numpy_phase_shift(prev, gray)
+                self.last_backend = "numpy_phasecorr"
+        else:
+            self.last_backend = "raw_framediff"
 
         warped_prev = np.roll(np.roll(prev, dy, axis=0), dx, axis=1)
         # exclude the wrapped border so np.roll artefacts do not inflate the residual

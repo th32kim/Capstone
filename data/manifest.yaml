@@ -12,6 +12,42 @@ clips:
     labellers: []
     held_out: false             # at least one clip must be held_out AND dense
 
+  # Decode params (target_fps: 4, max_long_edge_px: 1280) now come from configs/default.yaml as a
+  # global 4K-safe default, so per-clip overrides below are only needed for exceptions. resolve_source
+  # honours a per-clip `target_fps` / `max_long_edge_px` here if a clip needs to differ.
+  - id: plane_1                 # 4K aircraft-cabin POV (window view, reading a menu). gitignored .mp4
+    path: data/corpus/plane_1.mp4
+    source_kind: gopro          # 3840x2160, 59.94 fps, 48 kHz -> 16 kHz. A/V drift 0 ms (probed).
+    duration_s: 80              # measured (80.11 s). At the global 4 fps / 1280 cap: peak RSS ~1.2 GB.
+    scenes: [reading_document, cabin_interior, window_view]
+    consent: "developer's own footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: plane_1_720p            # 720p downscale of plane_1 (a real capture resolution, FS1)
+    path: data/corpus/plane_1_720p.mp4
+    source_kind: gopro          # 1280x720, 59.94 fps, 48 kHz. A/V drift 0 ms (probed). ~25 MB.
+    duration_s: 80              # prepared from plane_1.MP4 via `make prep-720p` (scripts/to720p.py)
+    scenes: [reading_document, cabin_interior, window_view]
+    consent: "developer's own footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: walk_1                  # 1080p WALKING POV (indoor, continuous ego-motion). D-2 validation clip.
+    path: sample-videos/IMG_6983.MOV
+    source_kind: iphone         # 1920x1080, 30 fps, 48 kHz. Heavy walking motion + blur -> the case
+    duration_s: 30              # ego-compensation (D2) exists for: naive frame-diff would fire throughout.
+    scenes: [walking, indoor]
+    consent: "developer's own footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
   - id: sample                  # bundled test footage (sample-videos/), gitignored .mp4
     path: sample-videos/sample.mp4
     source_kind: iphone         # 720x1280 portrait, 50 fps, 44.1 kHz
