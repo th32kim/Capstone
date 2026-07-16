@@ -30,14 +30,18 @@ class FacePresenceDetector:
         self.available = self._impl is not None
 
     def _build(self):
-        mp = optional("mediapipe")
-        if mp is not None:
+        if self.backend == "mediapipe":
+            mp = optional("mediapipe")
+            if mp is None:
+                return None
             try:
                 fd = mp.solutions.face_detection.FaceDetection(min_detection_confidence=self.min_confidence)
                 return ("mediapipe", fd)
             except Exception:  # noqa: BLE001
                 return None
-        # OpenCV DNN needs model files we do not bundle; only usable if present on disk.
+        if self.backend == "opencv_dnn":
+            # res10 SSD prototxt+caffemodel are not bundled; only usable if present on disk.
+            return None
         return None
 
     def score(self, w: Window) -> float | None:

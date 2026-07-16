@@ -16,6 +16,12 @@ class Ocr:
         self.enabled = bool(cfg.get("tier2.ocr.enabled", True)) if cfg else True
         self.max_keyframes = int(cfg.get("tier2.ocr.max_keyframes", 3)) if cfg else 3
         self._pt = optional("pytesseract")
+        # explicit binary path -- pip installing pytesseract only gets the wrapper; the
+        # tesseract binary itself is a system install and is frequently NOT on PATH (esp.
+        # Windows). Leave unset to rely on PATH (the Linux/macOS default).
+        tesseract_cmd = cfg.get("tier2.ocr.tesseract_cmd", None) if cfg else None
+        if self._pt is not None and tesseract_cmd:
+            self._pt.pytesseract.tesseract_cmd = tesseract_cmd
         # pytesseract present but the binary missing still yields "" (caught at call time)
         self.backend = "tesseract" if (self.enabled and self._pt is not None) else "unavailable"
 

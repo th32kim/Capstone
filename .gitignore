@@ -13,6 +13,7 @@ data/corpus/
 *.faiss
 __pycache__/
 .venv/
+configs/local.yaml
 .env
 .DS_Store
 *.egg-info/

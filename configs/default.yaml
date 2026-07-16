@@ -38,7 +38,7 @@ detectors:
   face_presence:
     enabled: true
     cadence: 24                 # [REPORT] ~1 Hz @ 24 fps. holds last value between evaluations.
-    backend: opencv_dnn         # opencv_dnn (res10 SSD) | mediapipe
+    backend: mediapipe          # opencv_dnn (res10 SSD, needs unbundled model files -> stays masked) | mediapipe
     min_confidence: 0.6         # [TUNE]
     area_weight: 0.3            # [TUNE] score = f(max_conf, n_faces, largest_face_area_frac)
   text_presence:
@@ -46,6 +46,9 @@ detectors:
     cadence: 48                 # [REPORT] ~0.5 Hz @ 24 fps
     backend: east               # east | mser_swt
     min_confidence: 0.5         # [TUNE]
+    east_model_path: models/east/frozen_east_text_detection.pb   # [ASSUMED] not bundled (no
+      # canonical trusted download URL to hardcode); if missing, honestly falls back to MSER
+      # and says so in `detect`'s output / out/scores notes ("text_backend": "mser_swt").
   voice_activity:
     enabled: true
     cadence: 1
@@ -146,6 +149,8 @@ tier2:
   asr:
     model: base.en              # [REPORT] faster-whisper, int8
     compute_type: int8
+    device: cpu                 # [REPORT] on-device Track A. ctranslate2 auto-detects CUDA and
+                                #          errors if the runtime isn't installed; pin explicitly.
   caption:
     model: Salesforce/blip-image-captioning-base   # [REPORT] BLIP-base
     keyframe: peak              # one keyframe

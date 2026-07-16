@@ -60,7 +60,8 @@ def build_detectors(cfg: Config) -> list[object]:
         c = d["text_presence"]
         built["text_presence"] = TextPresenceDetector(
             cadence=c["cadence"], backend=c.get("backend", "east"),
-            min_confidence=c.get("min_confidence", 0.5))
+            min_confidence=c.get("min_confidence", 0.5),
+            east_model_path=c.get("east_model_path"))
     if d.get("voice_activity", {}).get("enabled"):
         c = d["voice_activity"]
         built["voice_activity"] = VoiceActivityDetector(
@@ -134,6 +135,7 @@ def run_detectors(source, cfg: Config) -> DetectResult:
 
     notes: dict[str, object] = {
         "vad_backend": getattr(by_name.get("voice_activity"), "last_backend", "n/a"),
+        "text_backend": getattr(by_name.get("text_presence"), "active_backend", "n/a"),
         "masked_off_all_windows": sorted(n for n, off in masked_off.items() if off),
         "n_frames": len(frames),
         "n_chunks": len(chunks),

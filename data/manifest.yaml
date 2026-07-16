@@ -22,3 +22,14 @@ clips:
     label_mode: null
     labellers: []
     held_out: false
+
+  - id: sample2                 # face-detection test footage (sample-videos/), gitignored .mp4
+    path: sample-videos/sample2.mp4
+    source_kind: iphone         # 1770x994, 30 fps, 48 kHz
+    duration_s: 120
+    scenes: [face]
+    consent: "sample footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false

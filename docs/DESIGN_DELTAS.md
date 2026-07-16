@@ -145,3 +145,43 @@ over BLE / Wi-Fi / USB, several documented video-streaming paths):
 gate, and it ships IMU/GPS telemetry the glasses do not expose. The one thing to verify before
 committing is continuous live frame access to a phone app. **None of this blocks the prototype**,
 because the source is file-first. That was the point.
+
+---
+
+## D-8 — face_presence / text_presence backend selection made honest and config-driven
+
+**Owner:** P2 (Video-2).
+
+**What changed.**
+
+1. `face_presence` previously ignored its own `backend` config value and unconditionally tried
+   MediaPipe first, falling back to nothing. It now branches on `backend` (`mediapipe` |
+   `opencv_dnn`) as configured, so config and behaviour agree. `configs/default.yaml`'s default
+   moved from `opencv_dnn` (an unimplemented stub — the res10 SSD model files are not bundled, so
+   this setting could never do anything but mask off) to `mediapipe`, the only backend with a
+   real implementation.
+2. **MediaPipe's legacy `mp.solutions.face_detection` API** (what this detector is written
+   against) **was removed starting mediapipe 0.10.18**, replaced by the new Tasks API. An
+   unpinned `mediapipe>=0.10` (as `requirements.txt` had it) resolves to the latest release today
+   and silently leaves face_presence availability-masked off forever — no crash, just a detector
+   that never fires. `requirements.txt` now pins `mediapipe>=0.10.9,<0.10.18`. Verified: 0.10.14
+   builds `FaceDetection` successfully; 0.10.35 does not (`AttributeError: module 'mediapipe' has
+   no attribute 'solutions'`, caught and swallowed by the existing honest-masking `try/except`).
+3. `text_presence`'s `backend` config (`east` | `mser_swt`) was likewise accepted but never
+   branched on — it always ran MSER regardless. A real EAST branch now exists
+   (`cv2.dnn.readNet` + the standard EAST score/geometry decode), gated on a configurable
+   `detectors.text_presence.east_model_path`. The frozen EAST `.pb` model is **not bundled** —
+   there is no canonical, trustworthy URL for it to hardcode a download from — so with no model
+   file on disk (the default in this repo), `backend: east` **honestly falls back to MSER** and
+   records which backend actually ran (`notes["text_backend"]`, printed by `hindsight detect`),
+   mirroring the existing VAD energy-fallback pattern. It never silently claims EAST ran.
+
+**Why.** CLAUDE.md §1.2 ("code reads config") and §1.1 ("no fabricated numbers... a detector that
+cannot run is masked out, not scored 0, and never silently degrades without saying so"). Both
+detectors previously had a config knob that did nothing, which is the same failure class as a
+hard-coded threshold — the config lies about what the code will do.
+
+**Report impact:** none to the frozen design; this is implementation catching up to what
+`configs/default.yaml` already claimed. If EAST is later benchmarked against MSER for FS8/D4's
+precision, note that the corpus run in this repo used the MSER fallback (no EAST weights present)
+unless `east_model_path` is explicitly populated.

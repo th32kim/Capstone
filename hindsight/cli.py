@@ -139,6 +139,8 @@ def detect(clip: str, config: str = typer.Option("default", "--config", "-c"),
     typer.echo(f"per-frame cost @ {fps:.2f} fps:  {cost}  = {total:.2f} ms/frame  ({duty:.1f}% duty)")
     if res.notes.get("vad_backend") == "energy_fallback":
         typer.echo("  note: voice_activity used the RMS ENERGY FALLBACK (webrtcvad unavailable)")
+    if res.notes.get("text_backend") == "mser_swt":
+        typer.echo("  note: text_presence fell back to MSER (EAST model file not found on disk)")
     if res.notes.get("masked_off_all_windows"):
         typer.echo(f"  masked off (backend unavailable): {res.notes['masked_off_all_windows']}")
 
