@@ -64,12 +64,22 @@ def build_detectors(cfg: Config) -> list[object]:
     if d.get("voice_activity", {}).get("enabled"):
         c = d["voice_activity"]
         built["voice_activity"] = VoiceActivityDetector(
-            cadence=c["cadence"], aggressiveness=c.get("aggressiveness", 2),
-            frame_ms=c.get("frame_ms", 30), fallback=c.get("fallback", "energy"))
+            cadence=c["cadence"],
+            aggressiveness=c.get("aggressiveness", 2),
+            frame_ms=c.get("frame_ms", 30),
+            fallback=c.get("fallback", "energy"),
+            fallback_norm_percentiles=tuple(c["fallback_norm_percentiles"]),
+            fallback_threshold=c["fallback_threshold"],
+            fallback_min_dbfs=c["fallback_min_dbfs"],
+            silence_floor_dbfs=c["silence_floor_dbfs"],
+        )
     if d.get("audio_energy", {}).get("enabled"):
         c = d["audio_energy"]
         built["audio_energy"] = AudioEnergyDetector(
-            cadence=c["cadence"], norm_percentiles=tuple(c["norm_percentiles"]))
+            cadence=c["cadence"],
+            norm_percentiles=tuple(c["norm_percentiles"]),
+            silence_floor_dbfs=c["silence_floor_dbfs"],
+        )
     if d.get("dwell", {}).get("enabled"):
         c = d["dwell"]
         built["dwell"] = DwellDetector(
@@ -134,6 +144,7 @@ def run_detectors(source, cfg: Config) -> DetectResult:
 
     notes: dict[str, object] = {
         "vad_backend": getattr(by_name.get("voice_activity"), "last_backend", "n/a"),
+        "vad_fallback_reason": getattr(by_name.get("voice_activity"), "fallback_reason", None),
         "masked_off_all_windows": sorted(n for n, off in masked_off.items() if off),
         "n_frames": len(frames),
         "n_chunks": len(chunks),

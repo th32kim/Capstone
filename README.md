@@ -18,7 +18,7 @@ hindsight process demo      # Tier-2 -> out/records/
 hindsight ingest  demo      # SQLite + FAISS sidecar -> out/store/
 hindsight ask "conversation near the wearer"
 hindsight eval cascade demo && hindsight eval figures
-pytest -q                   # 33 tests
+pytest -q                   # optional-backend integration tests may skip in a core-only environment
 ```
 
 The special clip id **`demo`** runs the whole funnel on a deterministic synthetic source, so the

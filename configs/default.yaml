@@ -53,10 +53,15 @@ detectors:
     aggressiveness: 2           # [TUNE] 0-3
     frame_ms: 30                # webrtcvad accepts 10/20/30
     fallback: energy            # if webrtcvad is unavailable/throws -> RMS gate, AND SAY SO in the mask
+    fallback_norm_percentiles: [5, 95]  # [TUNE] causal adaptive RMS baseline
+    fallback_threshold: 0.5     # [TUNE] normalised RMS decision boundary
+    fallback_min_dbfs: -45.0    # [TUNE] catches steady speech before/without a useful baseline
+    silence_floor_dbfs: -120.0  # [ASSUMED] finite representation for digital silence (-inf dBFS)
   audio_energy:
     enabled: true
     cadence: 1
     norm_percentiles: [5, 95]   # [TUNE] running, causal
+    silence_floor_dbfs: -120.0  # [ASSUMED] finite representation for digital silence (-inf dBFS)
   dwell:
     enabled: false              # [DELTA D-3] optional. GoPro/IMU only. Availability-masked elsewhere.
     source: ego_motion          # ego_motion | gpmf     (gpmf is OFFLINE-ONLY - see DESIGN_DELTAS D-3)

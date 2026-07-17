@@ -15,26 +15,51 @@ import numpy as np
 from ..._deps import optional
 from ...contracts import AUDIO_SAMPLE_RATE, Window
 from ..base import RunningPercentileNormalizer
+from .audio_energy import rms_dbfs
 
 
 class VoiceActivityDetector:
     name = "voice_activity"
     modality = "audio"
 
-    def __init__(self, cadence: int = 1, aggressiveness: int = 2, frame_ms: int = 30,
-                 fallback: str = "energy") -> None:
+    def __init__(
+        self,
+        cadence: int,
+        aggressiveness: int,
+        frame_ms: int,
+        fallback: str,
+        fallback_norm_percentiles: tuple[float, float],
+        fallback_threshold: float,
+        fallback_min_dbfs: float,
+        silence_floor_dbfs: float,
+    ) -> None:
+        if frame_ms not in (10, 20, 30):
+            raise ValueError("webrtcvad frame_ms must be one of 10, 20, or 30")
+        if not 0 <= aggressiveness <= 3:
+            raise ValueError("webrtcvad aggressiveness must be between 0 and 3")
+        if fallback != "energy":
+            raise ValueError(f"unsupported voice_activity fallback {fallback!r}")
+        if not 0.0 <= fallback_threshold <= 1.0:
+            raise ValueError("voice_activity fallback_threshold must be in [0,1]")
         self.cadence = cadence
         self.frame_ms = frame_ms
         self.fallback = fallback
+        self.fallback_threshold = float(fallback_threshold)
+        self.fallback_min_dbfs = float(fallback_min_dbfs)
+        self.silence_floor_dbfs = float(silence_floor_dbfs)
         self._vad = None
         self.last_backend = "uninitialised"
+        self.fallback_reason: str | None = None
         webrtcvad = optional("webrtcvad")
         if webrtcvad is not None:
             try:
                 self._vad = webrtcvad.Vad(aggressiveness)
             except Exception:  # noqa: BLE001
                 self._vad = None
-        self._energy_norm = RunningPercentileNormalizer(5, 95)
+                self.fallback_reason = "webrtcvad_initialization_failed"
+        else:
+            self.fallback_reason = "webrtcvad_unavailable"
+        self._energy_norm = RunningPercentileNormalizer(*fallback_norm_percentiles)
 
     def _pcm(self, w: Window) -> np.ndarray:
         if not w.chunks:
@@ -49,7 +74,8 @@ class VoiceActivityDetector:
             try:
                 return self._score_webrtc(pcm)
             except Exception:  # noqa: BLE001 — degrade loudly, never lose the window
-                pass
+                self._vad = None
+                self.fallback_reason = "webrtcvad_runtime_error"
         return self._score_energy(pcm)
 
     def _score_webrtc(self, pcm: np.ndarray) -> float:
@@ -71,8 +97,9 @@ class VoiceActivityDetector:
         n = max(pcm.size // frame_len, 1)
         voiced = 0
         for i in range(n):
-            frame = pcm[i * frame_len : (i + 1) * frame_len].astype(np.float64)
-            rms = float(np.sqrt(np.mean(frame**2))) if frame.size else 0.0
-            if self._energy_norm.update_and_normalize(rms) > 0.5:
+            frame = pcm[i * frame_len : (i + 1) * frame_len]
+            dbfs = rms_dbfs(frame, self.silence_floor_dbfs)
+            normalised = self._energy_norm.update_and_normalize(dbfs)
+            if dbfs >= self.fallback_min_dbfs or normalised >= self.fallback_threshold:
                 voiced += 1
         return voiced / n
