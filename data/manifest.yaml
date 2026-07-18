@@ -12,6 +12,28 @@ clips:
     labellers: []
     held_out: false             # at least one clip must be held_out AND dense
 
+  - id: tabi                    # user-supplied speech clip (sample-videos/), gitignored .mp4
+    path: sample-videos/Tabi-Voyage-ShortTest.mp4
+    source_kind: iphone         # ASSUMED — device unconfirmed; 3024x1964 @ 59.96 fps, 48 kHz
+    duration_s: 50
+    scenes: [unlabelled]
+    consent: "user-provided footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: img9110                 # user-supplied English speech clip (sample-videos/), gitignored
+    path: sample-videos/IMG_9110.mov
+    source_kind: iphone         # IMG_*.mov naming; 480x854 @ 30 fps, 44.1 kHz
+    duration_s: 7
+    scenes: [unlabelled]        # spoken: "test video showing my bookshelf" (detected en p=0.99)
+    consent: "user-provided footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
   - id: sample                  # bundled test footage (sample-videos/), gitignored .mp4
     path: sample-videos/sample.mp4
     source_kind: iphone         # 720x1280 portrait, 50 fps, 44.1 kHz

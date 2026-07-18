@@ -15,7 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..config import Config
-from ..contracts import Frame, Segment, Verdict
+from ..contracts import AudioChunk, Frame, Segment, Verdict
+from ..tier2.asr import Asr, slice_pcm
 from .budget import SessionBudget
 from .cache import VerdictCache, evidence_key
 from .evidence import build_evidence
@@ -30,6 +31,7 @@ class CascadeStats:
     n_calls: int = 0
     n_cache_hits: int = 0
     n_failed_open: int = 0
+    n_transcripts: int = 0
     cost_usd: float = 0.0
     validator: str = ""
     budget_breached: str | None = None
@@ -47,9 +49,10 @@ def _score(seg: Segment, field_name: str) -> float:
     return seg.salience_mean if field_name == "salience_mean" else seg.salience_peak
 
 
-def run_cascade(segments: list[Segment], frames: list[Frame], cfg: Config) -> CascadeResult:
+def run_cascade(segments: list[Segment], frames: list[Frame], cfg: Config,
+                chunks: list[AudioChunk] | None = None) -> CascadeResult:
     tau_hi = float(cfg.get("cascade.tau_hi"))
-    theta_on = float(cfg.get("gating.theta_on"))
+    # the band's lower edge (theta_on) needs no check here: the gate never emits below it
     score_field = cfg.get("cascade.score_field", "salience_peak")
     include_transcript = cfg.get("cascade.evidence.include_transcript", True)
 
@@ -57,6 +60,15 @@ def run_cascade(segments: list[Segment], frames: list[Frame], cfg: Config) -> Ca
     budget = SessionBudget.from_config(cfg)
     cache = VerdictCache(cfg.get("cascade.cache.path", "out/cache/verdicts"))
     use_cache = cfg.get("cascade.cache.enabled", True)
+    # The cheap tiny.en evidence pass runs only when this validator will actually read it —
+    # the null baseline is "Tier-1 alone" (§1.8) and must not pay for evidence it ignores,
+    # or the measured cascade cost table is polluted. Construction is cheap (lazy=True: no
+    # model build); on-device the model may never be fetched over the network (§1.5) — it
+    # must already be in the local HF cache (make setup), else this honestly fails to None.
+    cheap_asr: Asr | None = None
+    if include_transcript and chunks and getattr(validator, "needs_transcript", True):
+        cheap_asr = Asr(cfg, model=cfg.get("cascade.evidence.asr_model", "tiny.en"), lazy=True,
+                        local_files_only=bool(cfg.get("on_device_only", True)))
 
     stats = CascadeStats(validator=validator.name)
     verdicts: list[Verdict] = []
@@ -74,7 +86,9 @@ def run_cascade(segments: list[Segment], frames: list[Frame], cfg: Config) -> Ca
 
         # uncertain band -> validate
         stats.n_unc += 1
-        transcript = _cheap_transcript(seg, frames, cfg) if include_transcript else None
+        transcript = _cheap_transcript(seg, chunks, cheap_asr) if cheap_asr else None
+        if transcript is not None:
+            stats.n_transcripts += 1
         ev = build_evidence(seg, frames, cfg, transcript=transcript)
         key = evidence_key(ev, cfg.config_hash)
 
@@ -111,14 +125,14 @@ def run_cascade(segments: list[Segment], frames: list[Frame], cfg: Config) -> Ca
     return CascadeResult(verdicts=verdicts, stats=stats)
 
 
-def _cheap_transcript(seg: Segment, frames, cfg) -> str | None:
-    """whisper tiny.en on the uncertain-band segment, if faster-whisper is installed; else None.
+def _cheap_transcript(seg: Segment, chunks: list[AudioChunk], asr: Asr) -> str | None:
+    """whisper tiny.en on the uncertain-band segment's audio, content-hash cached (M5).
 
-    The real ASR audio slice is wired in tier2/asr.py; here we only attempt the cheap tiny.en
-    pass and return None when the backend is absent (no fabrication).
+    Slices with the SAME slice_pcm Tier-2 uses, so the cache key lines up and the base.en
+    upgrade pass in tier2/asr.py shares the cache. None = could not run (no backend, no
+    audio): the evidence pack then honestly carries no transcript, never a fabricated "".
     """
-    from .._deps import optional
-
-    if optional("faster_whisper") is None:
+    pcm = slice_pcm(chunks, seg.t_start, seg.t_end)
+    if pcm.size == 0:
         return None
-    return None  # audio-slice plumbing lands with tier2.asr; tiny.en cache key reused there
+    return asr.transcribe_or_none(pcm)

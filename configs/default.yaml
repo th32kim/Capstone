@@ -120,7 +120,9 @@ cascade:
     max_long_edge_px: 512       # bounded cost
     jpeg_quality: 70
     include_transcript: true    # cheap ASR on the uncertain band only
-    asr_model: tiny.en          # cached by content hash; Tier-2 reuses it and upgrades to base.en
+    asr_model: tiny.en          # cached by content hash; Tier-2 reuses it and upgrades to base.en.
+                                # ENGLISH-ONLY: for a non-English corpus set a multilingual model
+                                # here too, not just tier2.asr.model — see DESIGN_DELTAS D-8.
     include_detector_evidence: true   # the 6 scores + mask + duration + peak/mean
   clip_local:
     model: ViT-B/32
@@ -144,8 +146,19 @@ cascade:
 # ----------------------------------------------------------------------------
 tier2:
   asr:
-    model: base.en              # [REPORT] faster-whisper, int8
+    model: base.en              # [REPORT] faster-whisper, int8. ENGLISH-ONLY — non-English
+                                # speech honestly transcribes to "". For a non-English corpus
+                                # use a multilingual model (tiny/base/small) + language below.
+    language: en                # [REPORT] matches the .en models; null = auto-detect (multilingual)
     compute_type: int8
+    device: cpu                 # [REPORT] int8 CPU is the report's premise. faster-whisper's
+                                # "auto" grabs CUDA on any NVIDIA box and crashes at encode()
+                                # without the CUDA runtime installed — opt into cuda explicitly.
+    beam_size: 5                # [ASSUMED] faster-whisper library default
+    temperature: 0.0            # [DERIVED] §1.7 determinism: greedy decode, no sampling fallback
+    # Shared with the cascade's tiny.en pass (cascade.evidence.asr_model). Keyed by
+    # sha256(segment pcm + model): re-running validate/process never re-transcribes.
+    transcript_cache: out/cache/transcripts
   caption:
     model: Salesforce/blip-image-captioning-base   # [REPORT] BLIP-base
     keyframe: peak              # one keyframe

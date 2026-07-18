@@ -11,6 +11,7 @@ from ...contracts import Evidence, Segment, Verdict
 
 class NullValidator:
     name = "null"
+    needs_transcript = False  # Tier-1-alone baseline: never pay for evidence ASR it ignores
 
     def validate(self, seg: Segment, ev: Evidence) -> Verdict:
         return Verdict(

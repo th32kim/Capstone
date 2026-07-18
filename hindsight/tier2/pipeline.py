@@ -14,10 +14,8 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 
-import numpy as np
-
 from ..contracts import AudioChunk, Frame, MemoryRecord, Segment, Verdict
-from .asr import Asr
+from .asr import Asr, slice_pcm
 from .caption import Captioner
 from .embed import Embedder
 from .ner import NerRunner
@@ -53,8 +51,8 @@ class Tier2Result:
 
 def _slice(seg: Segment, frames: list[Frame], chunks: list[AudioChunk]):
     segf = [f for f in frames if seg.t_start <= f.t_ms / 1000.0 <= seg.t_end]
-    segc = [c.pcm for c in chunks if seg.t_start <= c.t_ms / 1000.0 <= seg.t_end]
-    pcm = np.concatenate(segc).astype(np.int16) if segc else np.empty(0, dtype=np.int16)
+    # audio MUST go through slice_pcm so the transcript-cache key matches the cascade's
+    pcm = slice_pcm(chunks, seg.t_start, seg.t_end)
     peak = None
     if segf:
         target = seg.keyframe_ts[len(seg.keyframe_ts) // 2] if seg.keyframe_ts else seg.active_start

@@ -16,7 +16,7 @@ def _rows(stage: str) -> list[dict]:
     if not TIMINGS.exists():
         return []
     out = []
-    for line in TIMINGS.read_text().splitlines():
+    for line in TIMINGS.read_text(encoding="utf-8").splitlines():
         try:
             r = json.loads(line)
         except Exception:  # noqa: BLE001
