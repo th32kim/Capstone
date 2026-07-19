@@ -38,17 +38,30 @@ detectors:
   face_presence:
     enabled: true
     cadence: 24                 # [REPORT] ~1 Hz @ 24 fps. holds last value between evaluations.
-    backend: mediapipe          # opencv_dnn (res10 SSD, needs unbundled model files -> stays masked) | mediapipe
+    backend: mediapipe          # mediapipe | opencv_dnn (res10 SSD loader NOT implemented yet ->
+                                # always masks off; picking it is reported in `detect`'s notes)
     min_confidence: 0.6         # [TUNE]
     area_weight: 0.3            # [TUNE] score = f(max_conf, n_faces, largest_face_area_frac)
   text_presence:
     enabled: true
     cadence: 48                 # [REPORT] ~0.5 Hz @ 24 fps
-    backend: east               # east | mser_swt
+    backend: east               # east | mser_swt. Decided ONCE per run (the two score formulas
+                                # are incommensurable; a run never mixes them).
     min_confidence: 0.5         # [TUNE]
     east_model_path: models/east/frozen_east_text_detection.pb   # [ASSUMED] not bundled (no
-      # canonical trusted download URL to hardcode); if missing, honestly falls back to MSER
-      # and says so in `detect`'s output / out/scores notes ("text_backend": "mser_swt").
+      # canonical trusted download URL to hardcode). Relative paths resolve against the REPO
+      # ROOT, not the CWD. If missing, honestly falls back to MSER and `detect` prints the
+      # actual reason (notes: text_backend / text_backend_reason).
+    east:
+      input_size: 320           # [ASSUMED] EAST network input edge; must be a multiple of 32
+      nms_iou: 0.4              # [TUNE] NMSBoxes overlap threshold
+      count_saturation: 20      # [TUNE] ~20 post-NMS boxes => count term saturated
+      weights: [0.4, 0.3, 0.3]  # [TUNE] count / union-area / mean-confidence
+      max_consecutive_errors: 3 # after this many EAST inference failures the run stops trying
+                                # (windows are masked, never silently switched to MSER)
+    mser:
+      count_saturation: 40      # [TUNE] ~40 text-like glyph blobs => count term saturated
+      weights: [0.6, 0.4]       # [TUNE] count / area
   voice_activity:
     enabled: true
     cadence: 1
@@ -149,7 +162,8 @@ tier2:
   asr:
     model: base.en              # [REPORT] faster-whisper, int8
     compute_type: int8
-    device: cpu                 # [REPORT] on-device Track A. ctranslate2 auto-detects CUDA and
+    device: cpu                 # [ASSUMED] the report specifies model+int8 only, not a device.
+                                #          Engineering choice: ctranslate2 auto-detects CUDA and
                                 #          errors if the runtime isn't installed; pin explicitly.
   caption:
     model: Salesforce/blip-image-captioning-base   # [REPORT] BLIP-base
@@ -158,6 +172,9 @@ tier2:
     enabled: true               # [REPORT] FS8 is NON-ESSENTIAL. safe to disable if it costs too much.
     backend: tesseract          # [REPORT] Track A. (Track B uses Apple Vision.)
     max_keyframes: 3
+    tesseract_cmd: null         # [ASSUMED] absolute path to the tesseract binary when it is not
+                                #          on PATH (common on Windows, e.g.
+                                #          C:/Program Files/Tesseract-OCR/tesseract.exe). null = PATH.
   ner:
     model: en_core_web_sm       # [REPORT] spaCy
   summarize:

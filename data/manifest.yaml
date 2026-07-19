@@ -23,10 +23,10 @@ clips:
     labellers: []
     held_out: false
 
-  - id: sample2                 # face-detection test footage (sample-videos/), gitignored .mp4
-    path: sample-videos/sample2.mp4
-    source_kind: iphone         # 1770x994, 30 fps, 48 kHz
-    duration_s: 120
+  - id: face1                   # face-detection test footage (sample-videos/), gitignored .mov
+    path: sample-videos/face_1.mov
+    source_kind: iphone         # 480x854 portrait, 30 fps, 44.1 kHz (measured: ffprobe 2026-07-19)
+    duration_s: null            # filled by `hindsight probe`
     scenes: [face]
     consent: "sample footage"
     labelled: false
