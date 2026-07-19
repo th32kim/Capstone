@@ -1,7 +1,7 @@
 # OPT-IN profile. Enables the on-device YuNet face detector (D3), which is masked off in the
 # default profile. Fully on-device (no network); safe under NFS4.
 #
-# WHY OPT-IN (DESIGN_DELTAS D-8): enabling face SHIFTS the Tier-1 operating point. On face-less
+# WHY OPT-IN (DESIGN_DELTAS D-9): enabling face SHIFTS the Tier-1 operating point. On face-less
 # footage its 0.0 contribution at fusion weight 0.20 lowers fused salience, so theta_on (tuned in
 # the masked-face regime, Table 3.2-8) becomes too high and the gate under-produces. Measured on the
 # deterministic `demo` source: 3 segments -> 0 (fused max 0.725 -> 0.580, right at theta_on=0.58).

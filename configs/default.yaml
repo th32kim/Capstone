@@ -48,18 +48,37 @@ detectors:
   face_presence:
     enabled: true               # kept true so it masks off HONESTLY (renormalised out, never scored 0).
     cadence: 24                 # [REPORT] ~1 Hz @ 24 fps. holds last value between evaluations.
-    backend: yunet              # [DELTA D-8] yunet (OpenCV FaceDetectorYN) | mediapipe. res10 caffe is
-                                #             dead on OpenCV 5 (Caffe importer removed). See DESIGN_DELTAS.
-    # model_path is UNSET by default -> face is unavailable -> masks off -> STABLE operating point.
-    # To ENABLE face, load `configs/faces.yaml` (it sets model_path). That shifts the gate operating
-    # point (D-8) and needs P2's joint theta/weights re-sweep first, so it is opt-in, not the default.
-    min_confidence: 0.6         # [TUNE] -> YuNet score_threshold when enabled
+    backend: yunet              # [DELTA D-9] yunet (OpenCV FaceDetectorYN) | mediapipe. res10 caffe
+                                #             is dead on OpenCV 5 (Caffe importer removed); opencv_dnn
+                                #             is accepted as a legacy alias for yunet. See DESIGN_DELTAS.
+    # model_path is UNSET by default -> face is unavailable -> masks off (with the reason printed by
+    # `detect`) -> STABLE gate operating point on every platform. To ENABLE face, load
+    # `configs/faces.yaml` (yunet + model_path) or set `backend: mediapipe` with the pinned wheel
+    # installed (requirements.txt). Either SHIFTS the gate operating point (D-9, measured on `demo`:
+    # 3 segments -> 0) and needs P2's joint (theta_on, theta_off, weights) re-sweep first — so face
+    # is opt-in, not the default.
+    min_confidence: 0.6         # [TUNE] -> YuNet score_threshold / mediapipe min_detection_confidence
     area_weight: 0.3            # [TUNE] score = f(max_conf, largest_face_area_frac)
   text_presence:
     enabled: true
     cadence: 48                 # [REPORT] ~0.5 Hz @ 24 fps
-    backend: east               # east | mser_swt
+    backend: east               # east | mser_swt. Decided ONCE per run (the two score formulas
+                                # are incommensurable; a run never mixes them).
     min_confidence: 0.5         # [TUNE]
+    east_model_path: models/east/frozen_east_text_detection.pb   # [ASSUMED] not bundled (no
+      # canonical trusted download URL to hardcode). Relative paths resolve against the REPO
+      # ROOT, not the CWD. If missing, honestly falls back to MSER and `detect` prints the
+      # actual reason (notes: text_backend / text_backend_reason).
+    east:
+      input_size: 320           # [ASSUMED] EAST network input edge; must be a multiple of 32
+      nms_iou: 0.4              # [TUNE] NMSBoxes overlap threshold
+      count_saturation: 20      # [TUNE] ~20 post-NMS boxes => count term saturated
+      weights: [0.4, 0.3, 0.3]  # [TUNE] count / union-area / mean-confidence
+      max_consecutive_errors: 3 # after this many EAST inference failures the run stops trying
+                                # (windows are masked, never silently switched to MSER)
+    mser:
+      count_saturation: 40      # [TUNE] ~40 text-like glyph blobs => count term saturated
+      weights: [0.6, 0.4]       # [TUNE] count / area
   voice_activity:
     enabled: true
     cadence: 1
@@ -160,6 +179,9 @@ tier2:
   asr:
     model: base.en              # [REPORT] faster-whisper, int8
     compute_type: int8
+    device: cpu                 # [ASSUMED] the report specifies model+int8 only, not a device.
+                                #          Engineering choice: ctranslate2 auto-detects CUDA and
+                                #          errors if the runtime isn't installed; pin explicitly.
   caption:
     model: Salesforce/blip-image-captioning-base   # [REPORT] BLIP-base
     keyframe: peak              # one keyframe
@@ -167,6 +189,9 @@ tier2:
     enabled: true               # [REPORT] FS8 is NON-ESSENTIAL. safe to disable if it costs too much.
     backend: tesseract          # [REPORT] Track A. (Track B uses Apple Vision.)
     max_keyframes: 3
+    tesseract_cmd: null         # [ASSUMED] absolute path to the tesseract binary when it is not
+                                #          on PATH (common on Windows, e.g.
+                                #          C:/Program Files/Tesseract-OCR/tesseract.exe). null = PATH.
   ner:
     model: en_core_web_sm       # [REPORT] spaCy
   summarize:

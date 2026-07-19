@@ -15,7 +15,15 @@ librosa>=0.10
 av>=12.0                    # decoding; also the cleanest way at GoPro GPMF via container streams
 
 # tier-1
-mediapipe>=0.10             # optional face backend
+# pinned <0.10.30: mediapipe dropped the legacy `mp.solutions.face_detection` API (our backend)
+# in favour of the Tasks API. MEASURED boundary: the wheel ships solutions/face_detection.py up to
+# and including 0.10.21 (0.10.18/0.10.20/0.10.21 wheels inspected) and no longer does from 0.10.30
+# (the next published release). Runtime-verified: 0.10.14 builds FaceDetection; 0.10.35 does not.
+# An unpinned install resolves to the latest release and silently leaves face_presence
+# availability-masked off forever. No release in this range publishes cp313+ wheels, hence the
+# marker: on Python >= 3.13 the optional backend is skipped instead of failing the whole install
+# (face_presence then masks off and `hindsight detect` says why).
+mediapipe>=0.10.9,<0.10.30; python_version < "3.13"   # optional face backend
 
 # tier-2
 faster-whisper>=1.0

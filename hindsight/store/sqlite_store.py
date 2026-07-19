@@ -32,7 +32,7 @@ class SqliteStore:
         # is serialised by the single-user prototype, so this is safe (and standard for the pattern).
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
-        self.conn.executescript(SCHEMA.read_text())
+        self.conn.executescript(SCHEMA.read_text(encoding="utf-8"))
         self.conn.commit()
         if config_hash:
             self._set_meta("config_hash", config_hash)

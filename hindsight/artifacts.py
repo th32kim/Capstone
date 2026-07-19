@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import csv
 import json
-import time
-from dataclasses import asdict
 from pathlib import Path
 
 from ._deps import optional
@@ -53,7 +51,7 @@ def write_scores(clip: str, windows: list[DetectorScores], names: tuple[str, ...
             row += [int(ds.mask.get(n, False)) for n in names]
             w.writerow(row)
     if notes is not None:
-        (OUT / "scores" / f"{clip}.notes.json").write_text(json.dumps(notes, indent=2))
+        (OUT / "scores" / f"{clip}.notes.json").write_text(json.dumps(notes, indent=2), encoding="utf-8")
     return path
 
 
