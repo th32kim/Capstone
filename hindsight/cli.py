@@ -32,7 +32,9 @@ MANIFEST = Path("data/manifest.yaml")
 def _manifest() -> dict:
     if not MANIFEST.exists():
         return {"clips": []}
-    return yaml.safe_load(MANIFEST.read_text()) or {"clips": []}
+    # explicit encoding: Path.read_text() falls back to the locale codepage on Windows
+    # (e.g. cp949), which crashes on the manifest's non-ASCII characters.
+    return yaml.safe_load(MANIFEST.read_text(encoding="utf-8")) or {"clips": []}
 
 
 def _clip_entry(clip: str) -> dict | None:
@@ -139,6 +141,15 @@ def detect(clip: str, config: str = typer.Option("default", "--config", "-c"),
     typer.echo(f"per-frame cost @ {fps:.2f} fps:  {cost}  = {total:.2f} ms/frame  ({duty:.1f}% duty)")
     if res.notes.get("vad_backend") == "energy_fallback":
         typer.echo("  note: voice_activity used the RMS ENERGY FALLBACK (webrtcvad unavailable)")
+    if res.notes.get("text_backend_reason"):
+        # only printed when `backend: east` was configured but MSER actually ran — the reason
+        # states the real cause (path unset / file missing / load failed), never a guess.
+        typer.echo(f"  note: text_presence fell back to MSER ({res.notes['text_backend_reason']})")
+    if res.notes.get("text_east_errors"):
+        typer.echo(f"  note: text_presence masked {res.notes['text_east_errors']} window(s) "
+                   "on EAST inference errors (no silent MSER switch mid-run)")
+    if res.notes.get("face_backend_reason"):
+        typer.echo(f"  note: face_presence unavailable ({res.notes['face_backend_reason']})")
     if res.notes.get("masked_off_all_windows"):
         typer.echo(f"  masked off (backend unavailable): {res.notes['masked_off_all_windows']}")
 
@@ -371,7 +382,8 @@ def eval_gating(clip: str = typer.Argument(None), config: str = typer.Option("de
     cfg = load_config(config)
     clips = [clip] if clip else _seg_clips()
     if not clips:
-        typer.echo("no segments; run `hindsight gate <clip>` first"); return
+        typer.echo("no segments; run `hindsight gate <clip>` first")
+        return
     for c in clips:
         m = gating.evaluate(c, cfg)
         if m is None:
@@ -439,7 +451,7 @@ def _read_verdicts(clip: str) -> dict[str, bool]:
     if not path.exists():
         return {}
     keep = {}
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             d = json.loads(line)
             keep[d["segment_id"]] = bool(d["keep"])
@@ -453,7 +465,7 @@ def _verdict_objs(clip: str) -> dict:
     if not path.exists():
         return {}
     out = {}
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         d = json.loads(line)
@@ -482,7 +494,7 @@ def _read_records(clip: str):
 
     path = Path("out/records") / f"{clip}.jsonl"
     recs = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         d = json.loads(line)

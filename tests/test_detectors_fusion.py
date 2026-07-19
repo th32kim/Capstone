@@ -2,21 +2,67 @@
 
 from __future__ import annotations
 
+import pytest
+
+import hindsight.detectors.video.face_presence as face_presence_mod
+import hindsight.detectors.video.text_presence as text_presence_mod
 from hindsight.contracts import DetectorScores
 from hindsight.detectors import run_detectors
 from hindsight.detectors.base import RunningPercentileNormalizer
+from hindsight.detectors.video.face_presence import FacePresenceDetector
+from hindsight.detectors.video.text_presence import TextPresenceDetector
 from hindsight.fusion.linear import fuse_window
 from hindsight.sources import SyntheticSource, InterestSpan
 
 
-def test_unavailable_detectors_masked_not_zeroed(cfg):
+def test_unavailable_detectors_masked_not_zeroed(cfg, monkeypatch):
+    # simulate mediapipe/cv2 being absent for face/text (env-independent: these backends
+    # may or may not be installed wherever the suite runs)
+    monkeypatch.setattr(face_presence_mod, "optional", lambda name: None)
+    monkeypatch.setattr(text_presence_mod, "optional", lambda name: None)
     src = SyntheticSource(duration=6.0, spans=[InterestSpan(1.0, 4.0, ("voice", "motion"))])
     res = run_detectors(src, cfg)
-    # face/text need models we do not have -> masked off everywhere, never scored 0.0
+    # unavailable backends -> masked off everywhere, never scored 0.0
     assert set(res.notes["masked_off_all_windows"]) >= {"face_presence", "text_presence"}
     for ds in res.windows:
         assert "face_presence" not in ds.scores  # not a fabricated 0
         assert ds.mask.get("face_presence") is False
+    # ...and the runner records WHY, not just that it happened
+    assert "mediapipe" in (res.notes["face_backend_reason"] or "")
+    assert res.notes["text_backend"] == "unavailable"
+
+
+def test_backend_typo_rejected_by_config_validation(cfg):
+    with pytest.raises(ValueError):
+        cfg.with_overrides(**{"detectors.text_presence.backend": "eastt"})
+    with pytest.raises(ValueError):
+        cfg.with_overrides(**{"detectors.face_presence.backend": "media_pipe"})
+
+
+def test_detector_constructors_reject_unknown_backend():
+    with pytest.raises(ValueError):
+        TextPresenceDetector(backend="eastt")
+    with pytest.raises(ValueError):
+        FacePresenceDetector(backend="media_pipe")
+
+
+def test_text_presence_configured_mser_is_not_a_fallback():
+    det = TextPresenceDetector(backend="mser_swt")
+    if not det.available:
+        pytest.skip("cv2 not installed")
+    assert det.last_backend == "mser_swt"
+    assert det.fallback_reason is None  # deliberate choice; `detect` must not print a fallback note
+
+
+def test_text_presence_east_without_model_reports_real_reason(tmp_path):
+    det = TextPresenceDetector(backend="east", east_model_path=str(tmp_path / "nope.pb"))
+    if not det.available:
+        pytest.skip("cv2 not installed")
+    assert det.last_backend == "mser_swt"
+    assert det.fallback_reason is not None and "not found" in det.fallback_reason
+    det2 = TextPresenceDetector(backend="east", east_model_path=None)
+    if det2.available:
+        assert det2.fallback_reason == "east_model_path not set"
 
 
 def test_vad_fallback_is_recorded(cfg):

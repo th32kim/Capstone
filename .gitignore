@@ -11,8 +11,13 @@ data/corpus/
 *.db-wal
 *.db-shm
 *.faiss
+# model weights fetched locally (e.g. the ~90 MB EAST .pb that
+# detectors.text_presence.east_model_path points into models/) — never commit
+/models/
+*.pb
 __pycache__/
 .venv/
+configs/local.yaml
 .env
 .DS_Store
 *.egg-info/
