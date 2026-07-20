@@ -11,8 +11,7 @@ data/corpus/
 *.db-wal
 *.db-shm
 *.faiss
-# model weights fetched locally (e.g. the ~90 MB EAST .pb that
-# detectors.text_presence.east_model_path points into models/) — never commit
+# model weights fetched locally (the ~90 MB EAST .pb, the YuNet ONNX from `make setup`) — never commit
 /models/
 *.pb
 __pycache__/

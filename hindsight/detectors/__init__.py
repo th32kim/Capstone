@@ -55,7 +55,8 @@ def build_detectors(cfg: Config) -> list[object]:
         c = d["face_presence"]
         built["face_presence"] = FacePresenceDetector(
             cadence=c["cadence"], backend=c.get("backend", "mediapipe"),
-            min_confidence=c.get("min_confidence", 0.6), area_weight=c.get("area_weight", 0.3))
+            min_confidence=c.get("min_confidence", 0.6), area_weight=c.get("area_weight", 0.3),
+            model_path=c.get("model_path"))
     if d.get("text_presence", {}).get("enabled"):
         c = d["text_presence"]
         east, mser = c.get("east", {}), c.get("mser", {})
@@ -145,6 +146,7 @@ def run_detectors(source, cfg: Config) -> DetectResult:
     face_det = by_name.get("face_presence")
     notes: dict[str, object] = {
         "vad_backend": getattr(by_name.get("voice_activity"), "last_backend", "n/a"),
+        "motion_backend": getattr(by_name.get("motion"), "last_backend", "n/a"),
         "text_backend": getattr(text_det, "last_backend", "n/a"),
         "text_backend_reason": getattr(text_det, "fallback_reason", None),
         "text_east_errors": getattr(text_det, "east_errors", 0),

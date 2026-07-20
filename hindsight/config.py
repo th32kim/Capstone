@@ -176,7 +176,8 @@ def _validate(data: dict) -> None:
     # detector off (or silently run a different backend than the config claims).
     det = data.get("detectors", {})
     backend_enums = {
-        "face_presence": ("mediapipe", "opencv_dnn"),
+        # opencv_dnn/opencv are legacy aliases for yunet (D-9: res10 caffe is dead on OpenCV 5)
+        "face_presence": ("mediapipe", "yunet", "opencv_dnn", "opencv"),
         "text_presence": ("east", "mser_swt"),
         "voice_activity": ("webrtcvad",),
     }

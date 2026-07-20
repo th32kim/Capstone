@@ -63,6 +63,76 @@ does change the compute budget — which M2 measures rather than assumes.
 
 **Report impact:** D2's algorithm description and its row in the compute-budget table both change.
 
+> **⚠ Correctness fix (2026-07-19, review).** Two bugs were found in the ego-comp
+> implementation and fixed (with regression tests in `tests/test_video_detectors.py`):
+> (1) the numpy phase-correlation fallback returned the **negated** shift, so on a cv2-less
+> host it *anti-compensated* a pan (residual ≈ uncompensated, sometimes worse); (2) the
+> residual used `np.roll` + a border crop capped at `dim/4`, so a shift larger than a quarter
+> frame (a fast head turn) left wrap-around artefacts in the residual — a false salience spike
+> exactly when ego-motion is largest. The residual is now computed on the valid **overlap**
+> after the shift (no wrap band), and the numpy sign matches cv2. **Consequence for the numbers
+> below:** every pre-fix residual magnitude was measured against the buggy code and is
+> **superseded**. The plane_1 figures are re-measured post-fix; the `walk_1` figures could not
+> be (that clip is not committed — see `data/manifest.yaml`) and are retained only as a
+> qualitative, architectural finding pending a re-run on committed footage.
+
+**Validation — re-measured post-fix (2026-07-19) on `plane_1.MP4` (4K/59.94 fps aircraft-cabin
+POV; sample-videos/, gitignored), `hindsight detect plane_1 --fps 4`.** Measured, reproducible:
+
+- **Ego-compensation helps, and the numbers say by how much.** Versus a naive frame-diff, residual
+  motion cuts the mean response **23 %** (15.30 → 11.83, arbitrary 8-bit units) and, on the
+  top-quartile *high-camera-motion* windows, **31 %** (26.94 → 18.59). Correlation of the residual
+  with global camera-shift magnitude drops from **+0.59 to +0.41**. So D2 fires on the
+  menu-page/hand motion, not on the head pans — the whole point of the delta. (320 window-pairs.)
+- **cv2's subpixel `phaseCorrelate` is preferred over the numpy fallback**, but only marginally:
+  with the sign bug fixed, both paths ego-compensate correctly and agree to within the subpixel
+  rounding (≤1 px), so cv2 is the report-grade default for determinism, not because the numpy path
+  is broken. *(The pre-fix doc claimed a large 15.6-vs-24.8 gap "because cv2 lands a better integer
+  shift" — that gap was the sign bug, not centroid refinement.)*
+- **Two tempting refinements measured and REJECTED** (kept out to avoid unmeasured cleverness,
+  CLAUDE.md §9): a Hanning window on the FFT (no gain, marginally worse); a subpixel `warpAffine`
+  instead of an integer shift (<3 % residual change). The docstring that claimed the transform
+  was "Hanning-windowed" was simply wrong and is corrected.
+- **Ceiling, stated honestly:** because D2 compares one frame per 0.5 s window (2 Hz-effective,
+  independent of decode fps — see below), the frames it differences are ~0.5 s apart, where head
+  motion is large and non-translational (rotation/parallax/blur). That is why the residual is only
+  *partly* decorrelated from ego motion (+0.41, not ~0).
+
+**Walking-footage finding (Video-1, on `walk_1` = `IMG_6983.MOV`, 1080p/30 fps indoor walking POV —
+the case D-2 exists for). ⚠ Pre-fix, and the clip is NOT committed, so these specific numbers are
+not reproducible from this repo and must be re-run after the correctness fix.** The *qualitative*
+finding is architectural and independent of the two bugs: at 2 Hz window sampling the frames D2
+differences are ~0.5 s apart, so on heavy walking the inter-frame shift is large and
+non-translational and ego-comp can only partly help — **D2 stays close to a walking-detector on
+walking footage.** A decode-fps sweep (pre-fix numbers, indicative only) showed ego-comp
+effectiveness climbing steeply as frame spacing shrinks:
+
+| motion frame spacing | mean inter-frame shift | ego-comp reduction *(pre-fix, indicative)* |
+|---|---|---|
+| 500 ms (**2 Hz — D2 today**) | 26 px | ~12 % |
+| 167 ms (6 Hz) | 15 px | ~36 % |
+| 67 ms (15 Hz) | 5 px | ~46 % |
+| 33 ms (30 Hz, adjacent frames) | 2.6 px | ~49 % |
+
+The direction is the point: at adjacent-frame spacing the shift is small and un-blurred, phase
+correlation is accurate, and ego-comp isolates object motion. **This makes the "difference adjacent
+decoded frames, aggregate per window" change a measured necessity for the walking case, not an
+optional nicety.** It changes D2's cost row and interacts with the memory-driven `target_fps` cap
+(adjacent differencing wants ≥15 fps for motion; the budget wants ≤4 fps), so it needs P2's sign-off
+and an architecture call (e.g. let motion difference the two frames already present in a window
+rather than one). Flagged, not smuggled in. **P2 action: re-run this sweep on a committed walking
+clip with the fixed code before relying on the percentages.**
+
+**Decode tuning that came out of the same pass (for `data/manifest.yaml` / `configs/*`):** runtime
+is decode-bound, so `target_fps` is a *memory* lever, not a speed one — the runner materialises the
+whole frame list. **Measured (post-fix, 2026-07-19):** `plane_1` (4K, 80 s) at `--fps 4` / 1280 cap
+holds **888 MB** of RGB (321 frames × 2.76 MB) and runs in **~50 s** with no OOM. That is fine for an
+80 s clip but scales linearly, so a 30-min clip (~20 GB) needs streaming, not materialisation
+(HANDOFF #7). **Caveat for P2:** decode subsampling also stretches the *frame*-specified cadences of
+D3/D4 (face `cadence: 24` becomes ~6 s, not 1 Hz, at 4 fps) — harmless while those detectors are
+model-gated/masked, but if they come online, cadence should be expressed in seconds, not frames.
+That touches `base.CadencePolicy` (shared) and is flagged, not changed here.
+
 ---
 
 ## D-3 — New optional detector: `dwell` (D7), from IMU  ★ moderate, GoPro-only
@@ -155,11 +225,12 @@ because the source is file-first. That was the point.
 **What changed.**
 
 1. `face_presence` previously ignored its own `backend` config value and unconditionally tried
-   MediaPipe first, falling back to nothing. It now branches on `backend` (`mediapipe` |
-   `opencv_dnn`) as configured, so config and behaviour agree. `configs/default.yaml`'s default
-   moved from `opencv_dnn` (an unimplemented stub — the res10 SSD model files are not bundled, so
-   this setting could never do anything but mask off) to `mediapipe`, the only backend with a
-   real implementation.
+   MediaPipe first, falling back to nothing. It now branches on `backend` as configured, so
+   config and behaviour agree. *(Amended by the D-9 merge: the opencv path is now YuNet —
+   `opencv_dnn`/`opencv` are aliases for it — and `configs/default.yaml`'s default is
+   `backend: yunet` with `model_path` unset, i.e. face masks off by default; D-9's measured
+   operating-point argument governs the default, D-8's strict/honest dispatch governs the
+   mechanism. To run MediaPipe face detection, set `backend: mediapipe` with the pinned wheel.)*
 2. **MediaPipe's legacy `mp.solutions.face_detection` API** (what this detector is written
    against) was removed upstream in favour of the new Tasks API. **Measured boundary**: the
    win_amd64 wheels for 0.10.18, 0.10.20 and 0.10.21 all still ship
@@ -210,3 +281,56 @@ lies about what the code will do.
 `configs/default.yaml` already claimed. If EAST is later benchmarked against MSER for FS8/D4's
 precision, note that the corpus run in this repo used the MSER fallback (no EAST weights present)
 unless `east_model_path` is explicitly populated.
+
+---
+
+## D-9 — Face detector backend: forced substitution to YuNet  ★ minor, backend-only
+
+**Owner to sign off:** the D3/face detector owner.
+
+**What changed.** When D3 (`face_presence`) is enabled it now uses **OpenCV YuNet**
+(`cv2.FaceDetectorYN`, an ONNX model in `models/face/`) instead of the report's "res10 SSD or
+MediaPipe Face Detection." It is **opt-in** (`configs/faces.yaml`); the default profile carries no
+`model_path`, so face masks off and the gate keeps its Table 3.2-8 operating point (see the
+operating-point note below for why enabling it is deferred to P2's sweep).
+
+**Why (forced, not preferred).** On the current stack *neither* named backend is usable:
+- **res10 SSD** is a Caffe model; **OpenCV 5 removed the Caffe importer** (`cv2.dnn.readNetFromCaffe`
+  is gone), so the caffemodel cannot be loaded at all.
+- **MediaPipe** ships an arm64-macOS wheel with only the **Tasks API** — `mp.solutions` (the legacy
+  API D3 called) does not exist in it.
+
+YuNet is OpenCV's own, officially-recommended res10 successor, ~230 KB, no extra heavy deps (cv2 is
+already core). The presence score keeps the existing formula `f(max_conf, largest_face_area_frac)`;
+only the detector under it changed. Score semantics are unchanged, so the fusion contract is intact.
+
+**Report impact:** D3's method cell changes ("res10/MediaPipe" → "YuNet"). No spec is affected; it is
+presence-only, no identity, same output range.
+
+**Verification finding that matters more than the substitution (for the D5/voice + P2/gating owners).**
+Enabling the real detectors on `plane_1_720p.mp4` (720p aircraft-cabin POV) exposed that **`webrtcvad`
+is the wrong VAD for this footage**: the constant broadband cabin/engine bed is classified as speech
+at **~87 % of frames even at aggressiveness 3** (0=99.9 %, 2=88 %, 3=87 %) — saturated, not
+discriminative. Consequence in the funnel, measured:
+
+| detector state on plane_1_720p | segments | reduction (target ≥ 0.80) |
+|---|---|---|
+| energy fallback + face masked | 0 | 1.000 — under-fires |
+| webrtcvad + face masked | 1 × 60 s (max cap) | 0.255 — over-fires |
+| webrtcvad + YuNet face (face correctly 0.0) | 1 × 24.5 s | 0.696 — still FAIL |
+
+Face at a genuine 0.0 (checked, none present — this clip is not face-heavy) dampens the over-firing,
+but voice saturation keeps salience above θ_off across the menu-reading stretch. **The gate is not at
+fault; the VAD is.** Recommend either a noise-robust VAD (e.g. Silero) for wearable audio, or
+validating gating on footage with clean conversation rather than a plane cabin. This is a strong
+argument for the D-1 cascade too: a saturated Tier-1 cue is exactly what a validator would prune.
+
+**Operating-point consequence (for P2 — this is the important one).** Turning face *on* is not free
+at the gate: on face-less footage its 0.0 contribution at weight 0.20 uniformly lowers fused salience,
+so θ_on (tuned in the masked-face regime) becomes too high. Measured on the deterministic `demo`
+source in a full-deps env: **3 segments → 0**, fused max **0.725 → 0.580** (right at θ_on = 0.58).
+The minimal-env reference (no backends → face masks off) is unchanged at 4 segments, so nothing
+regressed there. The lesson is the D-1 lesson restated: **adding a detector requires re-sweeping the
+operating point, not just enabling the backend.** Recommend P2 fold "face available" and "real VAD"
+into the joint (θ_on, θ_off, weights) sweep before either is relied on. Until then, enabling these
+backends changes *where* the gate fires, not *whether* it is correct.

@@ -27,8 +27,9 @@ def test_unavailable_detectors_masked_not_zeroed(cfg, monkeypatch):
     for ds in res.windows:
         assert "face_presence" not in ds.scores  # not a fabricated 0
         assert ds.mask.get("face_presence") is False
-    # ...and the runner records WHY, not just that it happened
-    assert "mediapipe" in (res.notes["face_backend_reason"] or "")
+    # ...and the runner records WHY, not just that it happened (reason text is
+    # backend-specific — default is yunet since D-9 — so only assert one exists)
+    assert res.notes["face_backend_reason"]
     assert res.notes["text_backend"] == "unavailable"
 
 

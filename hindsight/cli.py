@@ -52,10 +52,16 @@ def resolve_source(clip: str, cfg, fps: float | None = None):
         src = demo_source()
         src.name = clip
         return src, "synthetic"
-    target_fps = fps if fps is not None else cfg.get("source.target_fps", None)
-    max_edge = cfg.get("source.max_long_edge_px", 1280)
-    kw = dict(target_fps=target_fps, max_long_edge_px=max_edge)
     entry = _clip_entry(clip)
+    # decode-param precedence: explicit CLI --fps > per-clip manifest > config default. A 4K clip
+    # materialises ~2.8 MB/frame; the runner holds the whole frame list, so target_fps is the
+    # memory lever (measured, DESIGN_DELTAS D-2) and belongs per-clip, not just on the CLI.
+    entry_fps = (entry or {}).get("target_fps")
+    entry_edge = (entry or {}).get("max_long_edge_px")
+    target_fps = fps if fps is not None else (
+        entry_fps if entry_fps is not None else cfg.get("source.target_fps", None))
+    max_edge = entry_edge if entry_edge is not None else cfg.get("source.max_long_edge_px", 1280)
+    kw = dict(target_fps=target_fps, max_long_edge_px=max_edge)
     if entry and entry.get("path") and Path(entry["path"]).exists():
         return ClipSource(entry["path"], name=clip, **kw), entry.get("source_kind", "clip")
     cand = Path("data/corpus") / f"{clip}.mp4"
@@ -63,6 +69,12 @@ def resolve_source(clip: str, cfg, fps: float | None = None):
         return ClipSource(cand, name=clip, **kw), "clip"
     if Path(clip).exists():
         return ClipSource(clip, name=Path(clip).stem, **kw), "clip"
+    # Distinguish "the id is in the manifest but its file is missing" from "unknown id" — the
+    # old message said 'not in manifest' for both, sending users to fix the wrong thing.
+    if entry and entry.get("path"):
+        raise typer.BadParameter(
+            f"clip {clip!r} is registered in data/manifest.yaml but its file "
+            f"{entry['path']!r} does not exist. Provide it there, or pass a path directly.")
     raise typer.BadParameter(
         f"cannot resolve clip {clip!r}: not in manifest, no data/corpus/{clip}.mp4, not a path. "
         f"Try `hindsight detect demo` for the synthetic source.")
@@ -121,6 +133,7 @@ def detect(clip: str, config: str = typer.Option("default", "--config", "-c"),
 
     cfg = load_config(config)
     src, _kind = resolve_source(clip, cfg, fps=fps)
+    clip = artifacts.artifact_key(clip)   # clean key for all artifacts + echoes (source already resolved)
     t0 = time.perf_counter()
     res = run_detectors(src, cfg)
     elapsed = time.perf_counter() - t0
@@ -141,6 +154,9 @@ def detect(clip: str, config: str = typer.Option("default", "--config", "-c"),
     typer.echo(f"per-frame cost @ {fps:.2f} fps:  {cost}  = {total:.2f} ms/frame  ({duty:.1f}% duty)")
     if res.notes.get("vad_backend") == "energy_fallback":
         typer.echo("  note: voice_activity used the RMS ENERGY FALLBACK (webrtcvad unavailable)")
+    if res.notes.get("motion_backend") == "numpy_phasecorr":
+        typer.echo("  note: motion used the NUMPY phase-correlation FALLBACK (cv2 unavailable); "
+                   "its scores are not comparable to cv2 runs (DESIGN_DELTAS D-2)")
     if res.notes.get("text_backend_reason"):
         # only printed when `backend: east` was configured but MSER actually ran — the reason
         # states the real cause (path unset / file missing / load failed), never a guess.
@@ -162,6 +178,7 @@ def gate(clip: str, config: str = typer.Option("default", "--config", "-c")):
     from .gating import segment_spans
 
     cfg = load_config(config)
+    clip = artifacts.artifact_key(clip)   # clean key for all artifacts + echoes
     windows, names = artifacts.read_scores(clip)
     t0 = time.perf_counter()
     fused = fuse_all(windows, cfg)
@@ -202,6 +219,7 @@ def validate(clip: str, validator: str = typer.Option(None, "--validator"),
 
     segments = artifacts.read_segments(clip)
     src, _ = resolve_source(clip, cfg, fps=fps)
+    clip = artifacts.artifact_key(clip)   # clean key for all artifacts + echoes
     frames = list(src.frames())
     t0 = time.perf_counter()
     result = run_cascade(segments, frames, cfg)
@@ -213,7 +231,7 @@ def validate(clip: str, validator: str = typer.Option(None, "--validator"),
         d["tags"] = list(v.tags)
         d["trim"] = list(v.trim) if v.trim else None
         rows.append(d)
-    artifacts.write_jsonl(Path("out/verdicts") / f"{clip}.jsonl", rows)
+    artifacts.write_jsonl(Path("out/verdicts") / f"{artifacts.artifact_key(clip)}.jsonl", rows)
     artifacts.log_timing("validate", clip, elapsed, **{
         "validator": result.stats.validator, "n_cand": result.stats.n_cand,
         "n_auto": result.stats.n_auto, "n_unc": result.stats.n_unc,
@@ -242,13 +260,14 @@ def process(clip: str, config: str = typer.Option("default", "--config", "-c"),
     kept_verdict_objs = _verdict_objs(clip)
 
     src, _ = resolve_source(clip, cfg, fps=fps)
+    clip = artifacts.artifact_key(clip)   # clean key for all artifacts + echoes
     frames, chunks = list(src.frames()), list(src.audio())
     t0 = time.perf_counter()
     res = process_segments(kept, frames, chunks, cfg, verdicts=kept_verdict_objs)
     elapsed = time.perf_counter() - t0
 
     rows = [_record_to_dict(r) for r in res.records]
-    artifacts.write_jsonl(Path("out/records") / f"{clip}.jsonl", rows)
+    artifacts.write_jsonl(Path("out/records") / f"{artifacts.artifact_key(clip)}.jsonl", rows)
 
     mean_proc = sum(res.per_segment_seconds) / len(res.per_segment_seconds) if res.per_segment_seconds else 0.0
     inter = (segments[-1].t_start - segments[0].t_start) / max(len(segments) - 1, 1) if len(segments) > 1 else 0.0
@@ -273,6 +292,7 @@ def ingest(clip: str, config: str = typer.Option("default", "--config", "-c")):
     cfg = load_config(config)
     records = _read_records(clip)
     entry = _clip_entry(clip)
+    clip = artifacts.artifact_key(clip)   # clean key for all artifacts + echoes
     store = SqliteStore(cfg.get("store.db_path"), config_hash=cfg.config_hash)
     index = VectorIndex(cfg=cfg)
     session_id = store.create_session(
@@ -447,7 +467,7 @@ def eval_figures(config: str = typer.Option("default")):
 
 # --------------------------------------------------------------------------- io helpers
 def _read_verdicts(clip: str) -> dict[str, bool]:
-    path = Path("out/verdicts") / f"{clip}.jsonl"
+    path = Path("out/verdicts") / f"{artifacts.artifact_key(clip)}.jsonl"
     if not path.exists():
         return {}
     keep = {}
@@ -461,7 +481,7 @@ def _read_verdicts(clip: str) -> dict[str, bool]:
 def _verdict_objs(clip: str) -> dict:
     from .contracts import Verdict
 
-    path = Path("out/verdicts") / f"{clip}.jsonl"
+    path = Path("out/verdicts") / f"{artifacts.artifact_key(clip)}.jsonl"
     if not path.exists():
         return {}
     out = {}
@@ -492,7 +512,7 @@ def _record_to_dict(r) -> dict:
 def _read_records(clip: str):
     from .contracts import Entity, MemoryRecord
 
-    path = Path("out/records") / f"{clip}.jsonl"
+    path = Path("out/records") / f"{artifacts.artifact_key(clip)}.jsonl"
     recs = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
