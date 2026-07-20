@@ -29,8 +29,12 @@ import yaml
 
 from . import contracts
 
+# The repo root is the parent of the hindsight/ package. Relative paths in config values
+# (e.g. detectors.text_presence.east_model_path) resolve against it, NOT the process CWD,
+# so the same config behaves the same regardless of the directory the CLI is launched from.
+REPO_ROOT = Path(__file__).resolve().parent.parent
 # configs/ lives at the repo root, a sibling of the hindsight/ package.
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs"
+CONFIG_DIR = REPO_ROOT / "configs"
 
 _MISSING = object()
 
@@ -167,6 +171,21 @@ def _validate(data: dict) -> None:
     g = data.get("gating", {})
     if "theta_on" in g and "theta_off" in g and g["theta_off"] > g["theta_on"] + 1e-9:
         raise ValueError(f"gating.theta_off ({g['theta_off']}) > theta_on ({g['theta_on']})")
+
+    # Detector backend enums: a typo'd backend must fail loudly here, not silently mask a
+    # detector off (or silently run a different backend than the config claims).
+    det = data.get("detectors", {})
+    backend_enums = {
+        # opencv_dnn/opencv are legacy aliases for yunet (D-9: res10 caffe is dead on OpenCV 5)
+        "face_presence": ("mediapipe", "yunet", "opencv_dnn", "opencv"),
+        "text_presence": ("east", "mser_swt"),
+        "voice_activity": ("webrtcvad",),
+    }
+    for det_name, allowed in backend_enums.items():
+        b = det.get(det_name, {}).get("backend")
+        if b is not None and b not in allowed:
+            raise ValueError(
+                f"detectors.{det_name}.backend={b!r} is not one of {list(allowed)}")
 
 
 def _freeze(data: dict, *, source: str) -> Config:

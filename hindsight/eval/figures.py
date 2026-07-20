@@ -78,5 +78,5 @@ def write_measurements(cfg: Config) -> Path:
     for r in rows:
         lines.append(f"| {r['spec']} | {r['desc']} | {r['measured']} | **{r['verdict']}** |")
     path = OUT_REPORTS / "measurements.md"
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path

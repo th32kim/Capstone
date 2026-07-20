@@ -54,13 +54,23 @@ def build_detectors(cfg: Config) -> list[object]:
     if d.get("face_presence", {}).get("enabled"):
         c = d["face_presence"]
         built["face_presence"] = FacePresenceDetector(
-            cadence=c["cadence"], backend=c.get("backend", "opencv_dnn"),
-            min_confidence=c.get("min_confidence", 0.6), area_weight=c.get("area_weight", 0.3))
+            cadence=c["cadence"], backend=c.get("backend", "mediapipe"),
+            min_confidence=c.get("min_confidence", 0.6), area_weight=c.get("area_weight", 0.3),
+            model_path=c.get("model_path"))
     if d.get("text_presence", {}).get("enabled"):
         c = d["text_presence"]
+        east, mser = c.get("east", {}), c.get("mser", {})
         built["text_presence"] = TextPresenceDetector(
             cadence=c["cadence"], backend=c.get("backend", "east"),
-            min_confidence=c.get("min_confidence", 0.5))
+            min_confidence=c.get("min_confidence", 0.5),
+            east_model_path=c.get("east_model_path"),
+            east_input_size=east.get("input_size", 320),
+            east_nms_iou=east.get("nms_iou", 0.4),
+            east_count_saturation=east.get("count_saturation", 20.0),
+            east_weights=tuple(east.get("weights", (0.4, 0.3, 0.3))),
+            east_max_consecutive_errors=east.get("max_consecutive_errors", 3),
+            mser_count_saturation=mser.get("count_saturation", 40.0),
+            mser_weights=tuple(mser.get("weights", (0.6, 0.4))))
     if d.get("voice_activity", {}).get("enabled"):
         c = d["voice_activity"]
         built["voice_activity"] = VoiceActivityDetector(
@@ -142,9 +152,17 @@ def run_detectors(source, cfg: Config) -> DetectResult:
         out.append(DetectorScores(window_index=w.index, t_start=w.t_start, t_end=w.t_end,
                                    scores=scores, mask=mask, stale=stale))
 
+    text_det = by_name.get("text_presence")
+    face_det = by_name.get("face_presence")
     notes: dict[str, object] = {
         "vad_backend": getattr(by_name.get("voice_activity"), "last_backend", "n/a"),
         "vad_fallback_reason": getattr(by_name.get("voice_activity"), "fallback_reason", None),
+        "motion_backend": getattr(by_name.get("motion"), "last_backend", "n/a"),
+        "text_backend": getattr(text_det, "last_backend", "n/a"),
+        "text_backend_reason": getattr(text_det, "fallback_reason", None),
+        "text_east_errors": getattr(text_det, "east_errors", 0),
+        "face_backend": getattr(face_det, "last_backend", "n/a"),
+        "face_backend_reason": getattr(face_det, "unavailable_reason", None),
         "masked_off_all_windows": sorted(n for n, off in masked_off.items() if off),
         "n_frames": len(frames),
         "n_chunks": len(chunks),

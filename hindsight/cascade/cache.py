@@ -38,7 +38,7 @@ class VerdictCache:
         f = self._file(key)
         if not f.exists():
             return None
-        d = json.loads(f.read_text())
+        d = json.loads(f.read_text(encoding="utf-8"))
         d["keyframes_jpeg"] = ()  # never stored
         d.pop("keyframes_jpeg", None)
         return Verdict(
@@ -53,4 +53,4 @@ class VerdictCache:
         d = asdict(verdict)
         d["tags"] = list(verdict.tags)
         d["trim"] = list(verdict.trim) if verdict.trim else None
-        self._file(key).write_text(json.dumps(d, indent=2))
+        self._file(key).write_text(json.dumps(d, indent=2), encoding="utf-8")

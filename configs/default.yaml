@@ -15,8 +15,18 @@ clock:
   audio_sample_rate: 16000      # [REPORT] FS2 requires >= 16 kHz
 
 source:
-  target_fps: null              # null = native. set to downsample video decode.
-  max_long_edge_px: 1280        # decode-time downscale cap; detectors downscale further
+  target_fps: 4                 # [TUNE, measured D-2] global 4K-SAFE default (corpus is a MIX of
+                                # 720p/1080p/4K). Runtime is decode-bound, so this is a MEMORY lever:
+                                # the runner materialises the whole frame list at ~2.8 MB/frame, and a
+                                # 4K clip at native 60 fps needs ~13 GB. D1/D2 are 2 Hz-effective (one
+                                # frame per 0.5 s window) and D3/D4 <= 1 Hz, so 4 fps loses no signal.
+                                # Precedence: CLI --fps > per-clip manifest > here. NOTE: bounds memory
+                                # for short/medium clips (measured 888 MB for plane_1, 4K/80 s); a 30-min
+                                # 4K clip (~20 GB) still needs the runner to STREAM, not materialise.
+  max_long_edge_px: 1280        # [TUNE, measured D-2] decode-time downscale cap. NORMALISES the mix: 4K and 1080p
+                                # both come down to 1280 long edge, 720p stays native -> detectors (and
+                                # per-frame RAM) are resolution-agnostic (measured motion corr 0.999,
+                                # 4K vs 720p). Also bounds D4/OCR text legibility. 1280 ~= 2.8 MB/frame.
 
 # ----------------------------------------------------------------------------
 # TIER 1 — the first guard. Cheap, deterministic, runs on 100% of the footage.
@@ -36,16 +46,39 @@ detectors:
     morph_kernel: 3             # [TUNE]
     norm_percentiles: [5, 95]   # [TUNE] running robust normaliser
   face_presence:
-    enabled: true
+    enabled: true               # kept true so it masks off HONESTLY (renormalised out, never scored 0).
     cadence: 24                 # [REPORT] ~1 Hz @ 24 fps. holds last value between evaluations.
-    backend: opencv_dnn         # opencv_dnn (res10 SSD) | mediapipe
-    min_confidence: 0.6         # [TUNE]
-    area_weight: 0.3            # [TUNE] score = f(max_conf, n_faces, largest_face_area_frac)
+    backend: yunet              # [DELTA D-9] yunet (OpenCV FaceDetectorYN) | mediapipe. res10 caffe
+                                #             is dead on OpenCV 5 (Caffe importer removed); opencv_dnn
+                                #             is accepted as a legacy alias for yunet. See DESIGN_DELTAS.
+    # model_path is UNSET by default -> face is unavailable -> masks off (with the reason printed by
+    # `detect`) -> STABLE gate operating point on every platform. To ENABLE face, load
+    # `configs/faces.yaml` (yunet + model_path) or set `backend: mediapipe` with the pinned wheel
+    # installed (requirements.txt). Either SHIFTS the gate operating point (D-9, measured on `demo`:
+    # 3 segments -> 0) and needs P2's joint (theta_on, theta_off, weights) re-sweep first — so face
+    # is opt-in, not the default.
+    min_confidence: 0.6         # [TUNE] -> YuNet score_threshold / mediapipe min_detection_confidence
+    area_weight: 0.3            # [TUNE] score = f(max_conf, largest_face_area_frac)
   text_presence:
     enabled: true
     cadence: 48                 # [REPORT] ~0.5 Hz @ 24 fps
-    backend: east               # east | mser_swt
+    backend: east               # east | mser_swt. Decided ONCE per run (the two score formulas
+                                # are incommensurable; a run never mixes them).
     min_confidence: 0.5         # [TUNE]
+    east_model_path: models/east/frozen_east_text_detection.pb   # [ASSUMED] not bundled (no
+      # canonical trusted download URL to hardcode). Relative paths resolve against the REPO
+      # ROOT, not the CWD. If missing, honestly falls back to MSER and `detect` prints the
+      # actual reason (notes: text_backend / text_backend_reason).
+    east:
+      input_size: 320           # [ASSUMED] EAST network input edge; must be a multiple of 32
+      nms_iou: 0.4              # [TUNE] NMSBoxes overlap threshold
+      count_saturation: 20      # [TUNE] ~20 post-NMS boxes => count term saturated
+      weights: [0.4, 0.3, 0.3]  # [TUNE] count / union-area / mean-confidence
+      max_consecutive_errors: 3 # after this many EAST inference failures the run stops trying
+                                # (windows are masked, never silently switched to MSER)
+    mser:
+      count_saturation: 40      # [TUNE] ~40 text-like glyph blobs => count term saturated
+      weights: [0.6, 0.4]       # [TUNE] count / area
   voice_activity:
     enabled: true
     cadence: 1
@@ -151,6 +184,9 @@ tier2:
   asr:
     model: base.en              # [REPORT] faster-whisper, int8
     compute_type: int8
+    device: cpu                 # [ASSUMED] the report specifies model+int8 only, not a device.
+                                #          Engineering choice: ctranslate2 auto-detects CUDA and
+                                #          errors if the runtime isn't installed; pin explicitly.
   caption:
     model: Salesforce/blip-image-captioning-base   # [REPORT] BLIP-base
     keyframe: peak              # one keyframe
@@ -158,6 +194,9 @@ tier2:
     enabled: true               # [REPORT] FS8 is NON-ESSENTIAL. safe to disable if it costs too much.
     backend: tesseract          # [REPORT] Track A. (Track B uses Apple Vision.)
     max_keyframes: 3
+    tesseract_cmd: null         # [ASSUMED] absolute path to the tesseract binary when it is not
+                                #          on PATH (common on Windows, e.g.
+                                #          C:/Program Files/Tesseract-OCR/tesseract.exe). null = PATH.
   ner:
     model: en_core_web_sm       # [REPORT] spaCy
   summarize:

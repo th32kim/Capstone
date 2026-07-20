@@ -25,6 +25,8 @@ dependencies = [
 # `pip install -e .[full]` pulls the real pipeline; see requirements.txt for the notes.
 full = [
   "opencv-python>=4.9",
+  # mirror of the requirements.txt pin — see the note there for the measured boundary
+  "mediapipe>=0.10.9,<0.10.30; python_version < '3.13'",
   "webrtcvad-wheels>=2.0.14",
   "soundfile>=0.12",
   "librosa>=0.10",

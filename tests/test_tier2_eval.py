@@ -26,6 +26,17 @@ def test_embed_dim_and_norm(cfg):
     assert abs(np.linalg.norm(v) - 1.0) < 1e-5  # L2-normalised
 
 
+def test_asr_builds_from_old_schema_config():
+    # a config written before tier2.asr.device existed must still build (Config.get raises
+    # on missing keys, so every read in Asr must pass an explicit default)
+    from hindsight.config import _freeze
+    from hindsight.tier2.asr import Asr
+
+    cfg = _freeze({"tier2": {"asr": {"model": "base.en", "compute_type": "int8"}}}, source="test")
+    a = Asr(cfg)  # must not raise KeyError
+    assert a.device == "cpu"
+
+
 def test_prf_basic():
     labels = [Interval(10, 20, "dense"), Interval(50, 60, "dense")]
     pred = [(10, 20), (100, 110)]  # one hit, one false positive; one label missed

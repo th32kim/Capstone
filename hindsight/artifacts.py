@@ -14,14 +14,24 @@ from __future__ import annotations
 
 import csv
 import json
-import time
-from dataclasses import asdict
 from pathlib import Path
 
 from ._deps import optional
 from .contracts import DETECTOR_NAMES, DetectorScores, Segment
 
 OUT = Path("out")
+
+
+def artifact_key(clip: str) -> str:
+    """A filesystem-safe artifact key for a clip identifier.
+
+    A clip arg may be a bare id (manifest/`demo`) or a path (`sample-videos/plane_1.MP4`).
+    Artifacts are keyed by the path's stem so every stage agrees on one clean token and a
+    path never lands the CSV under a nested subdir ensure_dirs() did not create (which used to
+    raise FileNotFoundError). Bare ids pass through unchanged.
+    """
+    s = str(clip)
+    return Path(s).stem if ("/" in s or "\\" in s) else s
 
 
 def ensure_dirs() -> None:
@@ -32,7 +42,7 @@ def ensure_dirs() -> None:
 
 def log_timing(stage: str, clip: str, seconds: float, **extra) -> None:
     ensure_dirs()
-    row = {"stage": stage, "clip": clip, "seconds": round(seconds, 6), **extra}
+    row = {"stage": stage, "clip": artifact_key(clip), "seconds": round(seconds, 6), **extra}
     with (OUT / "timings.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row) + "\n")
 
@@ -41,6 +51,7 @@ def log_timing(stage: str, clip: str, seconds: float, **extra) -> None:
 def write_scores(clip: str, windows: list[DetectorScores], names: tuple[str, ...],
                  notes: dict | None = None) -> Path:
     ensure_dirs()
+    clip = artifact_key(clip)
     path = OUT / "scores" / f"{clip}.csv"
     cols = ["window_index", "t_start", "t_end"]
     cols += [f"score_{n}" for n in names] + [f"mask_{n}" for n in names]
@@ -53,11 +64,12 @@ def write_scores(clip: str, windows: list[DetectorScores], names: tuple[str, ...
             row += [int(ds.mask.get(n, False)) for n in names]
             w.writerow(row)
     if notes is not None:
-        (OUT / "scores" / f"{clip}.notes.json").write_text(json.dumps(notes, indent=2))
+        (OUT / "scores" / f"{clip}.notes.json").write_text(json.dumps(notes, indent=2), encoding="utf-8")
     return path
 
 
 def read_scores(clip: str) -> tuple[list[DetectorScores], tuple[str, ...]]:
+    clip = artifact_key(clip)
     path = OUT / "scores" / f"{clip}.csv"
     with path.open(newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
@@ -97,6 +109,7 @@ def segment_from_dict(d: dict) -> Segment:
 
 def write_segments(clip: str, segments: list[Segment]) -> Path:
     ensure_dirs()
+    clip = artifact_key(clip)
     path = OUT / "segments" / f"{clip}.jsonl"
     with path.open("w", encoding="utf-8") as fh:
         for s in segments:
@@ -105,6 +118,7 @@ def write_segments(clip: str, segments: list[Segment]) -> Path:
 
 
 def read_segments(clip: str) -> list[Segment]:
+    clip = artifact_key(clip)
     path = OUT / "segments" / f"{clip}.jsonl"
     with path.open(encoding="utf-8") as fh:
         return [segment_from_dict(json.loads(line)) for line in fh if line.strip()]
@@ -122,6 +136,7 @@ def write_jsonl(path: Path, rows: list[dict]) -> Path:
 def write_salience_figure(clip: str, fused, segments: list[Segment]) -> tuple[Path, bool]:
     """Salience trace + shaded retained spans. PNG if matplotlib present, else CSV. Returns (path, is_png)."""
     ensure_dirs()
+    clip = artifact_key(clip)
     plt = optional("matplotlib")
     if plt is not None:
         import matplotlib
