@@ -39,7 +39,40 @@ clips:
     labellers: []
     held_out: false
 
-  # --- clips referenced by DESIGN_DELTAS but NOT on this checkout ------------------------------
+  - id: audio_1                 # active multi-speaker discussion, for AUDIO testing (not POV). gitignored
+    path: sample-videos/audio_1.mp4
+    source_kind: iphone         # stereo 44.1 kHz -> mono 16 kHz, ~60 s (measured: ffprobe 2026-07-19)
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [conversation]
+    consent: "sample footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: audio_1c                # clean re-encode of audio_1 (corrupt tail packet dropped; the raw
+    path: sample-videos/audio_1c.mp4   # audio_1 crashes decode until the Video-1/Audio-1 hardening lands).
+    source_kind: iphone         # English Socratic "fishbowl" discussion, 59 s. For ASR testing.
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [conversation]
+    consent: "sample footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: face1                   # face-detection test footage (sample-videos/), gitignored .mov
+    path: sample-videos/face_1.mov
+    source_kind: iphone         # 480x854 portrait, 30 fps, 44.1 kHz (measured: ffprobe 2026-07-19)
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [face]
+    consent: "sample footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  # --- clips referenced by DESIGN_DELTAS / owner test runs but NOT on this checkout -------------
   # Registry entries only: provide the file locally at `path`, then `hindsight probe` fills
   # duration_s. No metadata is asserted for a file that is absent (CLAUDE.md §1.1).
   - id: plane_1_720p            # 720p downscale of plane_1: `make prep-720p SRC=sample-videos/plane_1.MP4 DST=<path>`
@@ -64,11 +97,33 @@ clips:
     labellers: []
     held_out: false
 
-  - id: face1                   # face-detection test footage (sample-videos/), gitignored .mov
-    path: sample-videos/face_1.mov
-    source_kind: iphone         # 480x854 portrait, 30 fps, 44.1 kHz (measured: ffprobe 2026-07-19)
+  - id: tabi                    # Audio-2 speech clip (owner's, sample-videos/), gitignored .mp4
+    path: sample-videos/Tabi-Voyage-ShortTest.mp4
+    source_kind: iphone         # ASSUMED — device unconfirmed; expected 3024x1964 @ 59.96 fps, 48 kHz
     duration_s: null            # filled by `hindsight probe`
-    scenes: [face]
+    scenes: [unlabelled]
+    consent: "user-provided footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: img9110                 # Audio-2 English speech clip (owner's, sample-videos/), gitignored
+    path: sample-videos/IMG_9110.mov
+    source_kind: iphone         # expected 480x854 @ 30 fps, 44.1 kHz
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [unlabelled]        # spoken (owner note): "test video showing my bookshelf"
+    consent: "user-provided footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: sample                  # Audio-2 test footage (owner's, sample-videos/), gitignored .mp4
+    path: sample-videos/sample.mp4
+    source_kind: iphone         # expected 720x1280 portrait, 50 fps, 44.1 kHz
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [unlabelled]
     consent: "sample footage"
     labelled: false
     label_mode: null

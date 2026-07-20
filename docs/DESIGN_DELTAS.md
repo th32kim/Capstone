@@ -334,3 +334,27 @@ regressed there. The lesson is the D-1 lesson restated: **adding a detector requ
 operating point, not just enabling the backend.** Recommend P2 fold "face available" and "real VAD"
 into the joint (θ_on, θ_off, weights) sweep before either is relied on. Until then, enabling these
 backends changes *where* the gate fires, not *whether* it is correct.
+
+---
+
+## D-10 — ASR language: the report's `base.en` is English-only; the corpus may not be
+
+**Owner to sign off:** P3 (Tier-2 models), with whoever assembles the M4 corpus.
+*(Renumbered from D-8 in the main merge — main already holds D-8 backend-honesty and D-9 YuNet.)*
+
+**What changed.** `tier2.asr.language` is now config (default `en`, matching the report's
+`base.en`/`tiny.en` [REPORT] choice); previously the language was hard-coded in the ASR call.
+Nothing else moved — the default behaviour is identical.
+
+**Why it surfaced.** The first real speech clip run through the funnel
+(`sample-videos/`, 2026-07-17) was **Korean** (multilingual-tiny language detection: `ko`,
+p = 0.82). The English-only models honestly transcribed it to "" — correct wiring, wrong
+model for the audio. Switching config to `model: small, language: ko` produced real
+transcripts, with the cascade→Tier-2 transcript cache hitting end to end.
+
+**Decision needed.** If the M4 corpus will contain non-English speech, the report's DM
+choice of `base.en` must be re-scored against multilingual `base`/`small` (≈same size /
+~3× size; Korean quality needs at least `small`). If the corpus is English-only, keep
+`base.en` and note the language premise explicitly in the corpus protocol (docs/CORPUS.md).
+Do not mix: an `.en` model on non-English footage produces silent-looking `""` transcripts
+that read like an ASR bug and waste a debugging afternoon.

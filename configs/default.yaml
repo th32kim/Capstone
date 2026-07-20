@@ -158,7 +158,9 @@ cascade:
     max_long_edge_px: 512       # bounded cost
     jpeg_quality: 70
     include_transcript: true    # cheap ASR on the uncertain band only
-    asr_model: tiny.en          # cached by content hash; Tier-2 reuses it and upgrades to base.en
+    asr_model: tiny.en          # cached by content hash; Tier-2 reuses it and upgrades to base.en.
+                                # ENGLISH-ONLY: for a non-English corpus set a multilingual model
+                                # here too, not just tier2.asr.model — see DESIGN_DELTAS D-10.
     include_detector_evidence: true   # the 6 scores + mask + duration + peak/mean
   clip_local:
     model: ViT-B/32
@@ -182,11 +184,22 @@ cascade:
 # ----------------------------------------------------------------------------
 tier2:
   asr:
-    model: base.en              # [REPORT] faster-whisper, int8
+    model: base.en              # [REPORT] faster-whisper, int8. ENGLISH-ONLY — non-English
+                                # speech honestly transcribes to "". For a non-English corpus
+                                # use a multilingual model (tiny/base/small) + language below.
+    language: en                # [REPORT] matches the .en models; null = auto-detect (multilingual)
     compute_type: int8
-    device: cpu                 # [ASSUMED] the report specifies model+int8 only, not a device.
-                                #          Engineering choice: ctranslate2 auto-detects CUDA and
-                                #          errors if the runtime isn't installed; pin explicitly.
+    device: cpu                 # [ASSUMED] the report specifies model+int8 only, not a device;
+                                # cpu is the engineering choice. faster-whisper's "auto" grabs CUDA
+                                # on any NVIDIA box and crashes at encode() without the CUDA runtime,
+                                # so pin it explicitly unless config opts into cuda.
+    beam_size: 5                # [ASSUMED] faster-whisper library default
+    temperature: 0.0            # [REPORT] §1.7 determinism is a frozen non-negotiable: greedy
+                                # decode (scalar 0.0 collapses faster-whisper's temperature fallback
+                                # list, so there is no non-deterministic sampling path).
+    # Shared with the cascade's tiny.en pass (cascade.evidence.asr_model). Keyed by
+    # sha256(segment pcm + model): re-running validate/process never re-transcribes.
+    transcript_cache: out/cache/transcripts
   caption:
     model: Salesforce/blip-image-captioning-base   # [REPORT] BLIP-base
     keyframe: peak              # one keyframe

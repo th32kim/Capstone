@@ -44,7 +44,7 @@ def log_timing(stage: str, clip: str, seconds: float, **extra) -> None:
     ensure_dirs()
     row = {"stage": stage, "clip": artifact_key(clip), "seconds": round(seconds, 6), **extra}
     with (OUT / "timings.jsonl").open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row) + "\n")
+        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 # -- scores ----------------------------------------------------------------
@@ -113,7 +113,7 @@ def write_segments(clip: str, segments: list[Segment]) -> Path:
     path = OUT / "segments" / f"{clip}.jsonl"
     with path.open("w", encoding="utf-8") as fh:
         for s in segments:
-            fh.write(json.dumps(segment_to_dict(s)) + "\n")
+            fh.write(json.dumps(segment_to_dict(s), ensure_ascii=False) + "\n")
     return path
 
 
@@ -128,7 +128,9 @@ def write_jsonl(path: Path, rows: list[dict]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         for r in rows:
-            fh.write(json.dumps(r) + "\n")
+            # ensure_ascii=False: transcripts may be non-English (see DESIGN_DELTAS D-10);
+            # \uXXXX-escaped Korean is unreadable to the human checking the artifact.
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
     return path
 
 

@@ -226,8 +226,15 @@ def validate(clip: str, validator: str = typer.Option(None, "--validator"),
     src, _ = resolve_source(clip, cfg, fps=fps)
     clip = artifacts.artifact_key(clip)   # clean key for all artifacts + echoes
     frames = list(src.frames())
+    chunks = None
+    if cfg.get("cascade.evidence.include_transcript", True):
+        try:
+            chunks = list(src.audio())  # evidence transcripts need the segment audio
+        except Exception as exc:  # noqa: BLE001 — no audio backend must not block validation
+            typer.echo(f"  note: audio decode unavailable ({type(exc).__name__}) "
+                       "-> evidence transcripts skipped")
     t0 = time.perf_counter()
-    result = run_cascade(segments, frames, cfg)
+    result = run_cascade(segments, frames, cfg, chunks=chunks)
     elapsed = time.perf_counter() - t0
 
     rows = []
@@ -240,12 +247,13 @@ def validate(clip: str, validator: str = typer.Option(None, "--validator"),
     artifacts.log_timing("validate", clip, elapsed, **{
         "validator": result.stats.validator, "n_cand": result.stats.n_cand,
         "n_auto": result.stats.n_auto, "n_unc": result.stats.n_unc,
-        "n_calls": result.stats.n_calls, "cost_usd": result.stats.cost_usd})
+        "n_calls": result.stats.n_calls, "n_transcripts": result.stats.n_transcripts,
+        "cost_usd": result.stats.cost_usd})
     s = result.stats
     typer.echo(f"validator={s.validator}  candidates {s.n_cand}  auto-accept {s.n_auto}  "
                f"uncertain {s.n_unc}  kept {s.kept}  dropped {s.dropped}")
     typer.echo(f"AI calls {s.n_calls}  cache hits {s.n_cache_hits}  fail-open {s.n_failed_open}  "
-               f"${s.cost_usd:.4f}  wall {elapsed:.1f}s")
+               f"transcripts {s.n_transcripts}  ${s.cost_usd:.4f}  wall {elapsed:.1f}s")
     if s.budget_breached:
         typer.echo(f"  budget breached: {s.budget_breached} (failed open for the remainder)")
     typer.echo(f"wrote out/verdicts/{clip}.jsonl")
@@ -519,6 +527,8 @@ def _read_records(clip: str):
 
     path = Path("out/records") / f"{artifacts.artifact_key(clip)}.jsonl"
     recs = []
+    # utf-8 explicitly: records carry transcripts that may be non-ASCII (D-10); Windows'
+    # locale default (cp1252) raises UnicodeDecodeError on them.
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue

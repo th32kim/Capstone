@@ -19,7 +19,9 @@ def evidence_key(ev: Evidence, config_hash: str) -> str:
     h = hashlib.sha256()
     for kf in ev.keyframes_jpeg:
         h.update(kf)
-    h.update((ev.transcript or "").encode("utf-8"))
+    # None ("ASR could not run") and "" ("confirmed silence") are DIFFERENT evidence — see
+    # tier2/asr.py transcribe_or_none — and must not collide into one verdict-cache key.
+    h.update(b"\x00" if ev.transcript is None else b"\x01" + ev.transcript.encode("utf-8"))
     h.update(json.dumps(ev.detector_evidence, sort_keys=True).encode("utf-8"))
     h.update(f"{ev.duration_s:.3f}|{ev.salience_peak:.6f}|{ev.salience_mean:.6f}".encode())
     h.update(config_hash.encode("utf-8"))
