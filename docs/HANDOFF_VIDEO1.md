@@ -3,7 +3,7 @@
 Notice board from the **Video-1** owner (sources/clip.py, detectors/video/{motion,scene_change}).
 Everything here is *outside* Video-1's remit — it needs another owner's decision, sign-off, a shared
 fix, or a setup/permission step this owner cannot land alone. Grouped by who acts. Evidence is
-measured (see `docs/DESIGN_DELTAS.md` D-2 / D-8 for the numbers).
+measured (see `docs/DESIGN_DELTAS.md` D-2 / D-9 for the numbers).
 
 Last updated: 2026-07-16.
 
@@ -27,14 +27,14 @@ Last updated: 2026-07-16.
    0.725 → 0.580). Real VAD does the opposite (over-fires — see audio item). This is the D-1 joint
    sweep; it must run on the labelled corpus before face or webrtcvad is relied on by default.
 
-3. **Sign off D-8** (face backend substitution to YuNet — mostly your concern via the operating point).
+3. **Sign off D-9** (face backend substitution to YuNet — mostly your concern via the operating point).
 
 ## For the audio / VAD owner (D5 voice_activity)
 
 4. **webrtcvad is unsuitable for constant-broadband wearable audio.** On `plane_1` cabin noise it
    marks **~87 % of frames voiced even at aggressiveness 3** (0=99.9 %, 2=88 %, 3=87 %) — saturated,
    not discriminative — which makes the gate over-fire (reduction 0.255, FAIL). Recommend evaluating a
-   noise-robust VAD (e.g. Silero). Evidence in D-8.
+   noise-robust VAD (e.g. Silero). Evidence in D-9.
 5. **webrtcvad is install-gated, not config-gated.** `voice_activity` uses webrtcvad whenever the
    package is importable, regardless of `detectors.voice_activity.backend`. So the default profile is
    *not* reproducible across machines (energy fallback vs webrtcvad depending on install). Add a real
@@ -64,7 +64,7 @@ Last updated: 2026-07-16.
 10. **res10 / MediaPipe face backends are dead on this stack.** OpenCV 5 removed the Caffe importer
     (`cv2.dnn.readNetFromCaffe` gone); the arm64-macOS mediapipe wheel ships only the Tasks API (no
     `mp.solutions`). The working path is **YuNet** (opencv_zoo ONNX, ~230 KB) — fetched by
-    `make setup`, enabled via `configs/faces.yaml`. See D-8.
+    `make setup`, enabled via `configs/faces.yaml`. See D-9.
 11. **Heavy Tier-2 stack is not installed in the detect-stage venv** (torch / faster-whisper / faiss /
     spaCy / tesseract) — deliberate; Video-1 only needs numpy/cv2/av/PyYAML/typer. `process` → `ingest`
     → `ask` need the full `make setup`.

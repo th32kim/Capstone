@@ -63,63 +63,75 @@ does change the compute budget — which M2 measures rather than assumes.
 
 **Report impact:** D2's algorithm description and its row in the compute-budget table both change.
 
-**Validation (Video-1, 2026-07-14, on `plane_1.MP4` — 4K/59.94 fps aircraft-cabin POV: looking
-around the cabin + out the window (ego motion) and reading a menu, hand turning pages (independent
-object motion). Awaiting P2 sign-off).** All figures measured, none assumed:
+> **⚠ Correctness fix (2026-07-19, review).** Two bugs were found in the ego-comp
+> implementation and fixed (with regression tests in `tests/test_video_detectors.py`):
+> (1) the numpy phase-correlation fallback returned the **negated** shift, so on a cv2-less
+> host it *anti-compensated* a pan (residual ≈ uncompensated, sometimes worse); (2) the
+> residual used `np.roll` + a border crop capped at `dim/4`, so a shift larger than a quarter
+> frame (a fast head turn) left wrap-around artefacts in the residual — a false salience spike
+> exactly when ego-motion is largest. The residual is now computed on the valid **overlap**
+> after the shift (no wrap band), and the numpy sign matches cv2. **Consequence for the numbers
+> below:** every pre-fix residual magnitude was measured against the buggy code and is
+> **superseded**. The plane_1 figures are re-measured post-fix; the `walk_1` figures could not
+> be (that clip is not committed — see `data/manifest.yaml`) and are retained only as a
+> qualitative, architectural finding pending a re-run on committed footage.
+
+**Validation — re-measured post-fix (2026-07-19) on `plane_1.MP4` (4K/59.94 fps aircraft-cabin
+POV; sample-videos/, gitignored), `hindsight detect plane_1 --fps 4`.** Measured, reproducible:
 
 - **Ego-compensation helps, and the numbers say by how much.** Versus a naive frame-diff, residual
-  motion cuts the mean response 25 % (21.0 → 15.6, arbitrary 8-bit units) and, on the top-quartile
-  *high-camera-motion* windows, 30 % (37.4 → 26.2). Correlation of the emitted score with global
-  camera-shift magnitude drops from +0.57 to +0.46. So D2 fires on the menu-page/hand motion, not on
-  the head pans — which is the whole point of the delta.
-- **cv2's subpixel `phaseCorrelate` is materially better than the numpy fallback** (mean residual
-  15.6 vs 24.8; high-ego 26.2 vs 42.3), even though the shift is rounded to an integer roll — its
-  centroid refinement lands a better integer. OpenCV is a core dep, so the good path is the default
-  path; the numpy path is a real but weaker fallback (they disagree on the integer shift ~88 % of
-  the time). This validates the "use the cv2 subpixel path" call.
+  motion cuts the mean response **23 %** (15.30 → 11.83, arbitrary 8-bit units) and, on the
+  top-quartile *high-camera-motion* windows, **31 %** (26.94 → 18.59). Correlation of the residual
+  with global camera-shift magnitude drops from **+0.59 to +0.41**. So D2 fires on the
+  menu-page/hand motion, not on the head pans — the whole point of the delta. (320 window-pairs.)
+- **cv2's subpixel `phaseCorrelate` is preferred over the numpy fallback**, but only marginally:
+  with the sign bug fixed, both paths ego-compensate correctly and agree to within the subpixel
+  rounding (≤1 px), so cv2 is the report-grade default for determinism, not because the numpy path
+  is broken. *(The pre-fix doc claimed a large 15.6-vs-24.8 gap "because cv2 lands a better integer
+  shift" — that gap was the sign bug, not centroid refinement.)*
 - **Two tempting refinements measured and REJECTED** (kept out to avoid unmeasured cleverness,
   CLAUDE.md §9): a Hanning window on the FFT (no gain, marginally worse); a subpixel `warpAffine`
-  instead of the integer `np.roll` (<3 % residual change). The docstring that claimed the transform
+  instead of an integer shift (<3 % residual change). The docstring that claimed the transform
   was "Hanning-windowed" was simply wrong and is corrected.
 - **Ceiling, stated honestly:** because D2 compares one frame per 0.5 s window (2 Hz-effective,
   independent of decode fps — see below), the frames it differences are ~0.5 s apart, where head
   motion is large and non-translational (rotation/parallax/blur). That is why the residual is only
-  *partly* decorrelated from ego motion (+0.46, not ~0).
+  *partly* decorrelated from ego motion (+0.41, not ~0).
 
-**Walking-footage validation (Video-1, 2026-07-16, on `walk_1` = `IMG_6983.MOV`, 1080p/30 fps indoor
-walking POV — the case the task specifically asked for, and the case D-2 exists for). This is the
-finding that most matters for P2.** On *walking* footage, ego-compensation at the current 2 Hz sampling
-cuts the motion response **only 12 %** (raw 46.8 → residual 41.2), versus 25–30 % on the seated clip —
-even though the camera motion is 5× larger (mean shift 26 px vs 5.6 px). So **D2 as implemented is
-still close to a walking-detector on walking footage**, which is exactly the failure D-2 claims to
-cure. The cause is purely the 0.5 s frame spacing; a decode-fps sweep on the same clip proves it:
+**Walking-footage finding (Video-1, on `walk_1` = `IMG_6983.MOV`, 1080p/30 fps indoor walking POV —
+the case D-2 exists for). ⚠ Pre-fix, and the clip is NOT committed, so these specific numbers are
+not reproducible from this repo and must be re-run after the correctness fix.** The *qualitative*
+finding is architectural and independent of the two bugs: at 2 Hz window sampling the frames D2
+differences are ~0.5 s apart, so on heavy walking the inter-frame shift is large and
+non-translational and ego-comp can only partly help — **D2 stays close to a walking-detector on
+walking footage.** A decode-fps sweep (pre-fix numbers, indicative only) showed ego-comp
+effectiveness climbing steeply as frame spacing shrinks:
 
-| motion frame spacing | mean inter-frame shift | ego-comp reduction |
+| motion frame spacing | mean inter-frame shift | ego-comp reduction *(pre-fix, indicative)* |
 |---|---|---|
-| 500 ms (**2 Hz — D2 today**) | 26 px | **12 %** |
-| 167 ms (6 Hz) | 15 px | 36 % |
-| 67 ms (15 Hz) | 5 px | 46 % |
-| 33 ms (30 Hz, adjacent frames) | 2.6 px | **49 %** |
+| 500 ms (**2 Hz — D2 today**) | 26 px | ~12 % |
+| 167 ms (6 Hz) | 15 px | ~36 % |
+| 67 ms (15 Hz) | 5 px | ~46 % |
+| 33 ms (30 Hz, adjacent frames) | 2.6 px | ~49 % |
 
-At adjacent-frame spacing, translational phase correlation is accurate (small, un-blurred shift) and
-ego-comp removes ~half the walking response — genuinely isolating object motion. **This makes the
-"difference adjacent decoded frames, aggregate per window" change a measured necessity for the
-walking case, not an optional nicety** — it roughly quadruples ego-comp effectiveness there. It
-changes D2's cost row and interacts with the memory-driven `target_fps` cap (adjacent differencing
-wants ≥15 fps for motion; the budget wants ≤4 fps), so it needs P2's sign-off and an architecture
-call (e.g. let motion difference the two frames already present in a window rather than one). Flagged,
-not smuggled in. *Mitigation already in place:* the causal running-percentile normaliser adapts to
-sustained walking, so motion is not saturated on `walk_1` (mean 0.39), and the clip correctly yields
-0 segments — an empty-kitchen walk carries no conversational/text salience.
+The direction is the point: at adjacent-frame spacing the shift is small and un-blurred, phase
+correlation is accurate, and ego-comp isolates object motion. **This makes the "difference adjacent
+decoded frames, aggregate per window" change a measured necessity for the walking case, not an
+optional nicety.** It changes D2's cost row and interacts with the memory-driven `target_fps` cap
+(adjacent differencing wants ≥15 fps for motion; the budget wants ≤4 fps), so it needs P2's sign-off
+and an architecture call (e.g. let motion difference the two frames already present in a window
+rather than one). Flagged, not smuggled in. **P2 action: re-run this sweep on a committed walking
+clip with the fixed code before relying on the percentages.**
 
 **Decode tuning that came out of the same pass (for `data/manifest.yaml` / `configs/*`):** runtime
-is decode-bound, so `target_fps` is a *memory* lever, not a speed one — the runner holds the whole
-frame list (~2.8 MB/frame at 1280 px). Native 60 fps on a 4K clip ≈ 13 GB; `target_fps: 4` keeps peak
-RSS ~1.2 GB with no loss of D1/D2 signal (they are 2 Hz-effective). `hindsight detect plane_1 --fps 4`
-runs in ~73 s (80 s clip) with no OOM. **Caveat for P2:** decode subsampling also stretches the
-*frame*-specified cadences of D3/D4 (face `cadence: 24` becomes ~6 s, not 1 Hz, at 4 fps) — harmless
-while those detectors are model-gated/masked, but if they come online, cadence should be expressed in
-seconds, not frames. That touches `base.CadencePolicy` (shared) and is flagged, not changed here.
+is decode-bound, so `target_fps` is a *memory* lever, not a speed one — the runner materialises the
+whole frame list. **Measured (post-fix, 2026-07-19):** `plane_1` (4K, 80 s) at `--fps 4` / 1280 cap
+holds **888 MB** of RGB (321 frames × 2.76 MB) and runs in **~50 s** with no OOM. That is fine for an
+80 s clip but scales linearly, so a 30-min clip (~20 GB) needs streaming, not materialisation
+(HANDOFF #7). **Caveat for P2:** decode subsampling also stretches the *frame*-specified cadences of
+D3/D4 (face `cadence: 24` becomes ~6 s, not 1 Hz, at 4 fps) — harmless while those detectors are
+model-gated/masked, but if they come online, cadence should be expressed in seconds, not frames.
+That touches `base.CadencePolicy` (shared) and is flagged, not changed here.
 
 ---
 

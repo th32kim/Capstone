@@ -12,13 +12,22 @@ from __future__ import annotations
 import numpy as np
 
 from hindsight.contracts import Frame, Window
-from hindsight.detectors.video.motion import MotionDetector
+from hindsight.detectors.video.motion import (
+    MotionDetector, _numpy_phase_shift, _overlap_residual)
 from hindsight.detectors.video.scene_change import SceneChangeDetector
 
 
 def _win(rgb: np.ndarray, i: int) -> Window:
     return Window(index=i, t_start=i * 0.5, t_end=i * 0.5 + 0.5,
                   frames=(Frame(t_ms=i * 500, rgb=rgb),), chunks=())
+
+
+def _pan_frames(dx_per_win: int, n: int = 10, seed: int = 5) -> list[np.ndarray]:
+    """A pure CAMERA pan (ego motion) over a large static scene: each window crops a window
+    shifted by dx_per_win px. Reveals genuinely new content at the leading edge (not a cyclic
+    roll), so it exercises the overlap-residual path the way real footage does."""
+    scene = np.random.default_rng(seed).integers(0, 255, size=(200, 400, 3), dtype=np.uint8)
+    return [scene[40:130, 20 + i * dx_per_win: 20 + i * dx_per_win + 160].copy() for i in range(n)]
 
 
 def _bg(seed: int = 7) -> np.ndarray:
@@ -74,6 +83,42 @@ def test_motion_deterministic():
     bg = _bg()
     frames = [np.roll(bg, i * 3, axis=1).copy() for i in range(12)]
     assert _run(MotionDetector(), frames) == _run(MotionDetector(), frames)
+
+
+def test_motion_ego_suppresses_pure_camera_pan():
+    # THE headline D-2 claim: a pure ego pan (no object motion) must read LOW residual WITH
+    # ego-comp and HIGH without. Guards the sign + overlap fixes (a regression to either makes
+    # ego-comp a no-op and this fails). Uses a real pan that reveals new scene at the edge.
+    frames = _pan_frames(dx_per_win=18)
+    on = [s for s in _run(MotionDetector(ego_compensate=True), frames) if s is not None]
+    off = [s for s in _run(MotionDetector(ego_compensate=False), frames) if s is not None]
+    assert np.mean(on) < 0.15                    # ego-comp cancels the pan -> near-zero residual
+    assert np.mean(off) > 0.30                   # uncompensated, the same pan reads as motion
+    assert np.mean(on) < 0.5 * np.mean(off)      # and the reduction is large, not marginal
+
+
+def test_numpy_phase_shift_has_aligning_sign():
+    # The numpy fallback must return the shift that MAPS prev ONTO gray (same convention as
+    # cv2.phaseCorrelate) so the overlap residual cancels a pan. A negated sign (the old bug)
+    # leaves the residual at the uncompensated baseline.
+    rng = np.random.default_rng(11)
+    prev = rng.integers(0, 255, (90, 160)).astype(np.float32)
+    gray = np.roll(np.roll(prev, 4, 0), 7, 1).astype(np.float32)
+    dy, dx = _numpy_phase_shift(prev, gray)
+    assert (dy, dx) == (4, 7)                     # aligning sign, not (-4, -7)
+    assert _overlap_residual(prev, gray, dy, dx) < 1.0
+
+
+def test_motion_large_pan_no_border_artifact():
+    # A shift larger than a quarter-frame (fast head turn) must not leave np.roll wrap/edge
+    # artefacts in the residual. Overlap-slicing compares only in-bounds pixels, so a correctly
+    # compensated large pan reads ~0 even though the leading edge shows fresh content.
+    rng = np.random.default_rng(11)
+    prev = rng.integers(0, 255, (90, 160)).astype(np.float32)
+    gray = np.roll(np.roll(prev, 30, 0), 55, 1).copy()   # shift > 90//4 and > 160//4
+    gray[:30, :] = rng.integers(0, 255, (30, 160))       # fresh revealed band, top
+    gray[:, :55] = rng.integers(0, 255, (90, 55))        # fresh revealed band, left
+    assert _overlap_residual(prev, gray, 30, 55) < 1.0
 
 
 def test_motion_records_ego_backend():

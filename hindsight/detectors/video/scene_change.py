@@ -4,10 +4,10 @@ Downscale to 160x90, 3-D HSV histogram, cv2.HISTCMP_CORREL between consecutive w
 score = the *drop* in correlation, clipped to [0,1]. Pure numpy (cv2 optional). The first
 window has no predecessor, so it returns None -> masked (not scored 0).
 
-Tuning note (validated on plane_1.MP4, DESIGN_DELTAS D-2). `(1 - correl)/2` maps correl in
+Tuning note (measured on plane_1.MP4 @ 4 fps, 2026-07-19). `(1 - correl)/2` maps correl in
 [-1,1] onto [0,1], so *unrelated* scenes (correl ~ 0) read ~0.5 and a genuine content change
-reads ~0.4-0.5, while continuous POV footage stays low (measured p90 ~0.21, no hard cuts ->
-correctly quiet). Sweeps that were run and rejected: finer HSV bins (12^3/16^3) raise absolute
+reads ~0.4-0.5, while continuous POV footage stays low (measured p90 = 0.21 on plane_1, no hard
+cuts -> correctly quiet). Sweeps that were run and rejected: finer HSV bins (12^3/16^3) raise absolute
 magnitudes but scale signal and floor proportionally (no SNR gain) at 8x the histogram cost; the
 downscale size is irrelevant because a normalised histogram is scale-invariant. Hence the
 (8,8,8) / 160x90 defaults are retained. On a neutral palette (e.g. an aircraft cabin) this cue is

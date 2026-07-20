@@ -16,9 +16,11 @@ clips:
   # global 4K-safe default, so per-clip overrides below are only needed for exceptions. resolve_source
   # honours a per-clip `target_fps` / `max_long_edge_px` here if a clip needs to differ.
   - id: plane_1                 # 4K aircraft-cabin POV (window view, reading a menu). gitignored .mp4
-    path: data/corpus/plane_1.mp4
-    source_kind: gopro          # 3840x2160, 59.94 fps, 48 kHz -> 16 kHz. A/V drift 0 ms (probed).
-    duration_s: 80              # measured (80.11 s). At the global 4 fps / 1280 cap: peak RSS ~1.2 GB.
+    path: sample-videos/plane_1.MP4
+    source_kind: gopro          # 3840x2160, 59.94 fps, 48 kHz -> 16 kHz (measured: ffprobe 2026-07-19)
+    duration_s: null            # filled by `hindsight probe` (measured 80.11 s). At 4 fps / 1280 cap
+                                # the runner materialises ~888 MB of RGB (321 frames) — no OOM at 80 s,
+                                # but scales linearly, so a 30-min clip needs streaming (HANDOFF #7).
     scenes: [reading_document, cabin_interior, window_view]
     consent: "developer's own footage"
     labelled: false
@@ -26,10 +28,24 @@ clips:
     labellers: []
     held_out: false
 
-  - id: plane_1_720p            # 720p downscale of plane_1 (a real capture resolution, FS1)
+  - id: plane_2                 # 4K aircraft-cabin POV, second capture. gitignored .mp4
+    path: sample-videos/plane_2.MP4
+    source_kind: gopro          # 3840x2160, 59.94 fps, 48 kHz (measured: ffprobe 2026-07-19, 40.06 s)
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [cabin_interior, window_view]
+    consent: "developer's own footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  # --- clips referenced by DESIGN_DELTAS but NOT on this checkout ------------------------------
+  # Registry entries only: provide the file locally at `path`, then `hindsight probe` fills
+  # duration_s. No metadata is asserted for a file that is absent (CLAUDE.md §1.1).
+  - id: plane_1_720p            # 720p downscale of plane_1: `make prep-720p SRC=sample-videos/plane_1.MP4 DST=<path>`
     path: data/corpus/plane_1_720p.mp4
-    source_kind: gopro          # 1280x720, 59.94 fps, 48 kHz. A/V drift 0 ms (probed). ~25 MB.
-    duration_s: 80              # prepared from plane_1.MP4 via `make prep-720p` (scripts/to720p.py)
+    source_kind: gopro          # expected 1280x720, 59.94 fps, 48 kHz (derived from plane_1)
+    duration_s: null
     scenes: [reading_document, cabin_interior, window_view]
     consent: "developer's own footage"
     labelled: false
@@ -39,21 +55,10 @@ clips:
 
   - id: walk_1                  # 1080p WALKING POV (indoor, continuous ego-motion). D-2 validation clip.
     path: sample-videos/IMG_6983.MOV
-    source_kind: iphone         # 1920x1080, 30 fps, 48 kHz. Heavy walking motion + blur -> the case
-    duration_s: 30              # ego-compensation (D2) exists for: naive frame-diff would fire throughout.
+    source_kind: iphone         # heavy walking motion + blur -> the case ego-compensation (D2) exists for.
+    duration_s: null            # NOT committed; the D-2 walking-footage numbers were a local hand-run.
     scenes: [walking, indoor]
     consent: "developer's own footage"
-    labelled: false
-    label_mode: null
-    labellers: []
-    held_out: false
-
-  - id: sample                  # bundled test footage (sample-videos/), gitignored .mp4
-    path: sample-videos/sample.mp4
-    source_kind: iphone         # 720x1280 portrait, 50 fps, 44.1 kHz
-    duration_s: 60
-    scenes: [unlabelled]
-    consent: "sample footage"
     labelled: false
     label_mode: null
     labellers: []
