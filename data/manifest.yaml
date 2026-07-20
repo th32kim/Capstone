@@ -12,10 +12,84 @@ clips:
     labellers: []
     held_out: false             # at least one clip must be held_out AND dense
 
-  - id: tabi                    # user-supplied speech clip (sample-videos/), gitignored .mp4
+  # Decode params (target_fps: 4, max_long_edge_px: 1280) now come from configs/default.yaml as a
+  # global 4K-safe default, so per-clip overrides below are only needed for exceptions. resolve_source
+  # honours a per-clip `target_fps` / `max_long_edge_px` here if a clip needs to differ.
+  - id: plane_1                 # 4K aircraft-cabin POV (window view, reading a menu). gitignored .mp4
+    path: sample-videos/plane_1.MP4
+    source_kind: gopro          # 3840x2160, 59.94 fps, 48 kHz -> 16 kHz (measured: ffprobe 2026-07-19)
+    duration_s: null            # filled by `hindsight probe` (measured 80.11 s). At 4 fps / 1280 cap
+                                # the runner materialises ~888 MB of RGB (321 frames) — no OOM at 80 s,
+                                # but scales linearly, so a 30-min clip needs streaming (HANDOFF #7).
+    scenes: [reading_document, cabin_interior, window_view]
+    consent: "developer's own footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: plane_2                 # 4K aircraft-cabin POV, second capture. gitignored .mp4
+    path: sample-videos/plane_2.MP4
+    source_kind: gopro          # 3840x2160, 59.94 fps, 48 kHz (measured: ffprobe 2026-07-19, 40.06 s)
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [cabin_interior, window_view]
+    consent: "developer's own footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: audio_1                 # active multi-speaker discussion, for AUDIO testing (not POV). gitignored
+    path: sample-videos/audio_1.mp4
+    source_kind: iphone         # stereo 44.1 kHz -> mono 16 kHz, ~60 s (measured: ffprobe 2026-07-19)
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [conversation]
+    consent: "sample footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: face1                   # face-detection test footage (sample-videos/), gitignored .mov
+    path: sample-videos/face_1.mov
+    source_kind: iphone         # 480x854 portrait, 30 fps, 44.1 kHz (measured: ffprobe 2026-07-19)
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [face]
+    consent: "sample footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  # --- clips referenced by DESIGN_DELTAS / owner test runs but NOT on this checkout -------------
+  # Registry entries only: provide the file locally at `path`, then `hindsight probe` fills
+  # duration_s. No metadata is asserted for a file that is absent (CLAUDE.md §1.1).
+  - id: plane_1_720p            # 720p downscale of plane_1: `make prep-720p SRC=sample-videos/plane_1.MP4 DST=<path>`
+    path: data/corpus/plane_1_720p.mp4
+    source_kind: gopro          # expected 1280x720, 59.94 fps, 48 kHz (derived from plane_1)
+    duration_s: null
+    scenes: [reading_document, cabin_interior, window_view]
+    consent: "developer's own footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: walk_1                  # 1080p WALKING POV (indoor, continuous ego-motion). D-2 validation clip.
+    path: sample-videos/IMG_6983.MOV
+    source_kind: iphone         # heavy walking motion + blur -> the case ego-compensation (D2) exists for.
+    duration_s: null            # NOT committed; the D-2 walking-footage numbers were a local hand-run.
+    scenes: [walking, indoor]
+    consent: "developer's own footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false
+
+  - id: tabi                    # Audio-2 speech clip (owner's, sample-videos/), gitignored .mp4
     path: sample-videos/Tabi-Voyage-ShortTest.mp4
-    source_kind: iphone         # ASSUMED — device unconfirmed; 3024x1964 @ 59.96 fps, 48 kHz
-    duration_s: 50
+    source_kind: iphone         # ASSUMED — device unconfirmed; expected 3024x1964 @ 59.96 fps, 48 kHz
+    duration_s: null            # filled by `hindsight probe`
     scenes: [unlabelled]
     consent: "user-provided footage"
     labelled: false
@@ -23,21 +97,21 @@ clips:
     labellers: []
     held_out: false
 
-  - id: img9110                 # user-supplied English speech clip (sample-videos/), gitignored
+  - id: img9110                 # Audio-2 English speech clip (owner's, sample-videos/), gitignored
     path: sample-videos/IMG_9110.mov
-    source_kind: iphone         # IMG_*.mov naming; 480x854 @ 30 fps, 44.1 kHz
-    duration_s: 7
-    scenes: [unlabelled]        # spoken: "test video showing my bookshelf" (detected en p=0.99)
+    source_kind: iphone         # expected 480x854 @ 30 fps, 44.1 kHz
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [unlabelled]        # spoken (owner note): "test video showing my bookshelf"
     consent: "user-provided footage"
     labelled: false
     label_mode: null
     labellers: []
     held_out: false
 
-  - id: sample                  # bundled test footage (sample-videos/), gitignored .mp4
+  - id: sample                  # Audio-2 test footage (owner's, sample-videos/), gitignored .mp4
     path: sample-videos/sample.mp4
-    source_kind: iphone         # 720x1280 portrait, 50 fps, 44.1 kHz
-    duration_s: 60
+    source_kind: iphone         # expected 720x1280 portrait, 50 fps, 44.1 kHz
+    duration_s: null            # filled by `hindsight probe`
     scenes: [unlabelled]
     consent: "sample footage"
     labelled: false

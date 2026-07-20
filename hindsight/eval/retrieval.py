@@ -21,7 +21,7 @@ QUERIES = Path("data/queries/queries.yaml")
 def _load_queries() -> list[dict]:
     if not QUERIES.exists():
         return []
-    return (yaml.safe_load(QUERIES.read_text()) or {}).get("queries", [])
+    return (yaml.safe_load(QUERIES.read_text(encoding="utf-8")) or {}).get("queries", [])
 
 
 def _dcg(rels: list[int]) -> float:

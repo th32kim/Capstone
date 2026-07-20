@@ -1,0 +1,17 @@
+# OPT-IN profile. Enables the on-device YuNet face detector (D3), which is masked off in the
+# default profile. Fully on-device (no network); safe under NFS4.
+#
+# WHY OPT-IN (DESIGN_DELTAS D-9): enabling face SHIFTS the Tier-1 operating point. On face-less
+# footage its 0.0 contribution at fusion weight 0.20 lowers fused salience, so theta_on (tuned in
+# the masked-face regime, Table 3.2-8) becomes too high and the gate under-produces. Measured on the
+# deterministic `demo` source: 3 segments -> 0 (fused max 0.725 -> 0.580, right at theta_on=0.58).
+# So DO NOT rely on this profile until P2 folds "face available" into the joint (theta_on, theta_off,
+# weights) re-sweep on the labelled corpus. It is here so that sweep, and any face-bearing footage
+# test, has a one-line switch to turn face on.
+#
+# Model: fetched by `make setup` (opencv_zoo YuNet ONNX, ~230 KB) into models/face/. If the file is
+# absent the detector simply masks off again (honest degrade, no crash).
+extends: default.yaml
+detectors:
+  face_presence:
+    model_path: models/face/face_detection_yunet_2023mar.onnx
