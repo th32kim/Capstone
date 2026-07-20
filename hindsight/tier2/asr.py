@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import uuid
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -60,8 +61,10 @@ class TranscriptCache:
     def put(self, key: str, text: str) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
         # atomic: existence == complete result. A run killed mid-write must never leave a
-        # truncated file that every later run serves as a real transcript (§1.1).
-        tmp = self._file(key).with_suffix(".tmp")
+        # truncated file that every later run serves as a real transcript (§1.1). The temp name
+        # is per-writer (uuid) so two threads writing the SAME key (identical silence, once Phase A
+        # parallelises) never share a temp path and race on os.replace.
+        tmp = self._file(key).with_name(f"{key}.{uuid.uuid4().hex}.tmp")
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, self._file(key))
 

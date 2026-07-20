@@ -31,11 +31,13 @@ class _FakeSegment:
 
 class _FakeWhisperModel:
     last_kwargs: dict = {}
+    last_local_files_only: bool | None = None
 
     def __init__(self, model_name: str, device: str = "auto",
                  compute_type: str | None = None, local_files_only: bool = False) -> None:
         assert device == "cpu"  # config must pin cpu — "auto" crashes on CUDA-less NVIDIA boxes
         self.model_name = model_name
+        _FakeWhisperModel.last_local_files_only = local_files_only
 
     def transcribe(self, audio, language=None, beam_size=None, temperature=None):
         # no **kwargs on purpose: an unexpected kwarg (sampling_rate=...) must TypeError
@@ -183,3 +185,24 @@ def test_cascade_no_backend_no_crash(cfg, tmp_path, monkeypatch):
     res = run_cascade([_seg("mid", 0.65)], frames=[], cfg=c, chunks=_chunks(15.0))
     assert res.stats.n_transcripts == 0                 # attempted, honestly None
     assert all(v.keep for v in res.verdicts)            # nothing lost to a missing backend
+
+
+def test_tier2_asr_honours_on_device_local_files_only(cfg, tmp_path, fake_whisper):
+    # §1.5: nothing on the on-device path may open a socket. Tier-2's process ASR (not just the
+    # cascade) must pin local_files_only under on_device_only=true, else `process` can download.
+    from hindsight.tier2.pipeline import Tier2Runners
+
+    c = _cfg_with_cache(cfg, tmp_path)
+    assert c.get("on_device_only", True) is True
+    assert Tier2Runners.build(c).asr.local_files_only is True
+    cloud = c.with_overrides(**{"on_device_only": False})
+    assert Tier2Runners.build(cloud).asr.local_files_only is False
+
+
+def test_cascade_asr_honours_on_device_local_files_only(cfg, tmp_path, fake_whisper):
+    # the cascade's tiny.en evidence pass must likewise forbid the network on-device.
+    c = _cfg_with_cache(cfg, tmp_path).with_overrides(**{
+        "cascade.validator": "clip_local", "cascade.cache.enabled": False})
+    _FakeWhisperModel.last_local_files_only = None
+    run_cascade([_seg("mid", 0.65)], frames=[], cfg=c, chunks=_chunks(15.0))
+    assert _FakeWhisperModel.last_local_files_only is True   # on_device_only defaults to true

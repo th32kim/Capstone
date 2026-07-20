@@ -189,7 +189,9 @@ tier2:
                                 # on any NVIDIA box and crashes at encode() without the CUDA runtime,
                                 # so pin it explicitly unless config opts into cuda.
     beam_size: 5                # [ASSUMED] faster-whisper library default
-    temperature: 0.0            # [DERIVED] §1.7 determinism: greedy decode, no sampling fallback
+    temperature: 0.0            # [REPORT] §1.7 determinism is a frozen non-negotiable: greedy
+                                # decode (scalar 0.0 collapses faster-whisper's temperature fallback
+                                # list, so there is no non-deterministic sampling path).
     # Shared with the cascade's tiny.en pass (cascade.evidence.asr_model). Keyed by
     # sha256(segment pcm + model): re-running validate/process never re-transcribes.
     transcript_cache: out/cache/transcripts

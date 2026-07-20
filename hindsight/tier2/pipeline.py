@@ -34,7 +34,11 @@ class Tier2Runners:
 
     @classmethod
     def build(cls, cfg) -> "Tier2Runners":
-        return cls(Asr(cfg), Captioner(cfg), Ocr(cfg), NerRunner(cfg), Embedder(cfg), cfg)
+        # on_device_only forbids a network fetch on the processing path too, not just the cascade
+        # (§1.5): pin local_files_only so `process` never opens a socket to download base.en.
+        local_only = bool(cfg.get("on_device_only", True))
+        return cls(Asr(cfg, local_files_only=local_only),
+                   Captioner(cfg), Ocr(cfg), NerRunner(cfg), Embedder(cfg), cfg)
 
     def backends(self) -> dict[str, str]:
         return {"asr": self.asr.backend, "caption": self.caption.backend, "ocr": self.ocr.backend,
