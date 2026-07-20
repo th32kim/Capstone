@@ -35,6 +35,11 @@ class AudioEnergyDetector:
         norm_percentiles: tuple[float, float],
         silence_floor_dbfs: float,
     ) -> None:
+        if silence_floor_dbfs > 0.0:
+            raise ValueError("silence_floor_dbfs must be <= 0 (0 dBFS = digital full scale)")
+        lo, hi = norm_percentiles
+        if not 0.0 <= lo < hi <= 100.0:
+            raise ValueError("audio_energy.norm_percentiles must be 0 <= lo < hi <= 100")
         self.cadence = cadence
         self._norm = RunningPercentileNormalizer(*norm_percentiles)
         self.silence_floor_dbfs = float(silence_floor_dbfs)

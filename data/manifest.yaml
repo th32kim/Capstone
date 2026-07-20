@@ -74,3 +74,14 @@ clips:
     label_mode: null
     labellers: []
     held_out: false
+
+  - id: audio_1                 # active multi-speaker discussion, for AUDIO testing (not POV). gitignored
+    path: sample-videos/audio_1.mp4
+    source_kind: iphone         # stereo 44.1 kHz -> mono 16 kHz, ~60 s (measured: ffprobe 2026-07-19)
+    duration_s: null            # filled by `hindsight probe`
+    scenes: [conversation]
+    consent: "sample footage"
+    labelled: false
+    label_mode: null
+    labellers: []
+    held_out: false

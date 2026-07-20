@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fractions import Fraction
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -14,6 +15,10 @@ from hindsight.sources.clip import ClipSource
 
 av = pytest.importorskip("av")
 pytest.importorskip("webrtcvad")
+
+# audio_1.mp4 carries a genuinely corrupt final packet — the exact real-world case the decode
+# hardening must survive. gitignored, so skip cleanly where it is not provisioned.
+_AUDIO_1 = Path("sample-videos/audio_1.mp4")
 
 
 def _write_test_clip(path) -> None:
@@ -81,3 +86,20 @@ def test_clip_source_audio_contract_and_real_vad(tmp_path):
     assert result.notes["vad_backend"] == "webrtcvad"
     assert result.notes["vad_fallback_reason"] is None
     assert result.notes["n_chunks"] == len(chunks)
+    assert result.notes["audio_decode_errors"] == 0   # a clean clip drops nothing
+    # the real webrtcvad path produced actual per-window voice scores, not just a backend label
+    voice = [w.scores["voice_activity"] for w in result.windows if "voice_activity" in w.scores]
+    assert voice and all(0.0 <= v <= 1.0 for v in voice)
+
+
+@pytest.mark.skipif(not _AUDIO_1.exists(), reason="sample-videos/audio_1.mp4 not provisioned")
+def test_audio_decode_survives_a_corrupt_packet():
+    # A single malformed packet (audio_1's final one) must be skipped, not crash the pipeline,
+    # and the loss must be reported (never silent) — CLAUDE.md §1.
+    source = ClipSource(str(_AUDIO_1), target_fps=8)
+    chunks = list(source.audio())          # must not raise
+    assert len(chunks) > 100               # ~60 s of 20 ms chunks recovered, not zero
+    assert source.audio_decode_errors >= 1  # the bad packet was seen and counted
+    res = run_detectors(source, load_config("default"))
+    assert res.notes["audio_decode_errors"] >= 1
+    assert res.notes["vad_backend"] == "webrtcvad"

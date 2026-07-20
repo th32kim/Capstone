@@ -41,6 +41,11 @@ class VoiceActivityDetector:
             raise ValueError(f"unsupported voice_activity fallback {fallback!r}")
         if not 0.0 <= fallback_threshold <= 1.0:
             raise ValueError("voice_activity fallback_threshold must be in [0,1]")
+        if fallback_min_dbfs > 0.0 or silence_floor_dbfs > 0.0:
+            raise ValueError("dBFS levels must be <= 0 (0 dBFS = digital full scale)")
+        lo, hi = fallback_norm_percentiles
+        if not 0.0 <= lo < hi <= 100.0:
+            raise ValueError("fallback_norm_percentiles must be 0 <= lo < hi <= 100")
         self.cadence = cadence
         self.frame_ms = frame_ms
         self.fallback = fallback
@@ -78,12 +83,14 @@ class VoiceActivityDetector:
                 self.fallback_reason = "webrtcvad_runtime_error"
         return self._score_energy(pcm)
 
-    def _score_webrtc(self, pcm: np.ndarray) -> float:
-        self.last_backend = "webrtcvad"
+    def _score_webrtc(self, pcm: np.ndarray) -> float | None:
         frame_len = int(AUDIO_SAMPLE_RATE * self.frame_ms / 1000)  # 480 @ 30 ms
         n = pcm.size // frame_len
         if n == 0:
-            return 0.0
+            # window too short for even one VAD frame -> could not run -> masked, NOT a real 0.0
+            # (CLAUDE.md §3). Do not claim the webrtcvad backend for a window it never scored.
+            return None
+        self.last_backend = "webrtcvad"
         voiced = 0
         for i in range(n):
             frame = pcm[i * frame_len : (i + 1) * frame_len].tobytes()
