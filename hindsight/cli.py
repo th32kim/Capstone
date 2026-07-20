@@ -153,7 +153,12 @@ def detect(clip: str, config: str = typer.Option("default", "--config", "-c"),
     cost = "  ".join(f"{n.split('_')[0]} {per_frame[n]:.2f}" for n in res.detector_names)
     typer.echo(f"per-frame cost @ {fps:.2f} fps:  {cost}  = {total:.2f} ms/frame  ({duty:.1f}% duty)")
     if res.notes.get("vad_backend") == "energy_fallback":
-        typer.echo("  note: voice_activity used the RMS ENERGY FALLBACK (webrtcvad unavailable)")
+        reason = res.notes.get("vad_fallback_reason") or "webrtcvad unavailable"
+        typer.echo(f"  note: voice_activity used the RMS ENERGY FALLBACK ({reason})")
+    if res.notes.get("audio_decode_errors") or res.notes.get("video_decode_errors"):
+        typer.echo(f"  note: skipped corrupt packets during decode "
+                   f"(audio={res.notes.get('audio_decode_errors', 0)}, "
+                   f"video={res.notes.get('video_decode_errors', 0)}) — decoded the rest")
     if res.notes.get("motion_backend") == "numpy_phasecorr":
         typer.echo("  note: motion used the NUMPY phase-correlation FALLBACK (cv2 unavailable); "
                    "its scores are not comparable to cv2 runs (DESIGN_DELTAS D-2)")

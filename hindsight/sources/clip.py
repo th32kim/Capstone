@@ -33,6 +33,33 @@ class ClipMeta:
     duration_s: float
 
 
+class _AudioChunker:
+    """Turn resampled PCM blocks into fixed 20 ms chunks while preserving the first media PTS."""
+
+    def __init__(
+        self, sample_rate: int = AUDIO_SAMPLE_RATE, chunk_ms: int = AUDIO_CHUNK_MS
+    ) -> None:
+        self.sample_rate = sample_rate
+        self.chunk_samples = int(sample_rate * chunk_ms / 1000)
+        self._buffer = np.empty(0, dtype=np.int16)
+        self._next_t_s: float | None = None
+
+    def push(self, samples: np.ndarray, start_s: float | None) -> list[AudioChunk]:
+        samples = np.asarray(samples, dtype=np.int16).reshape(-1)
+        if samples.size == 0:
+            return []
+        if self._next_t_s is None:
+            self._next_t_s = float(start_s) if start_s is not None else 0.0
+        self._buffer = np.concatenate((self._buffer, samples))
+        chunks: list[AudioChunk] = []
+        while self._buffer.size >= self.chunk_samples:
+            pcm = self._buffer[: self.chunk_samples].copy()
+            self._buffer = self._buffer[self.chunk_samples :]
+            chunks.append(AudioChunk(t_ms=int(round(self._next_t_s * 1000.0)), pcm=pcm))
+            self._next_t_s += self.chunk_samples / self.sample_rate
+        return chunks
+
+
 def _downscale_long_edge(rgb: np.ndarray, max_long_edge: int | None):
     if not max_long_edge:
         return rgb
@@ -64,6 +91,11 @@ class ClipSource:
         self.max_long_edge_px = max_long_edge_px
         self._meta: ClipMeta | None = None
         self.sample_rate = AUDIO_SAMPLE_RATE  # we always resample to this
+        # Real recordings ship malformed/truncated packets (esp. the final one). We skip an
+        # undecodable packet and keep going rather than crash the whole pipeline; the counts are
+        # surfaced in the detect notes so a lossy decode is never silent (CLAUDE.md §1).
+        self.video_decode_errors = 0
+        self.audio_decode_errors = 0
 
     # -- metadata ----------------------------------------------------------
     @property
@@ -128,16 +160,24 @@ class ClipSource:
         with av.open(str(self.path)) as container:
             stream = container.streams.video[0]
             stream.thread_type = "AUTO"
-            for frame in container.decode(stream):
-                if frame.pts is None:
+            # demux packet-by-packet so one corrupt packet is skipped, not fatal (the demux flush
+            # packet also drains buffered frames — a bare container.decode() drops that tail).
+            for packet in container.demux(stream):
+                try:
+                    decoded = list(packet.decode())
+                except av.error.FFmpegError:
+                    self.video_decode_errors += 1
                     continue
-                t_s = float(frame.pts * stream.time_base)
-                if step and t_s + 1e-9 < next_emit:
-                    continue
-                next_emit = t_s + step
-                rgb = frame.to_ndarray(format="rgb24")
-                yield Frame(t_ms=int(round(t_s * 1000)),
-                            rgb=_downscale_long_edge(rgb, self.max_long_edge_px))
+                for frame in decoded:
+                    if frame.pts is None:
+                        continue
+                    t_s = float(frame.pts * stream.time_base)
+                    if step and t_s + 1e-9 < next_emit:
+                        continue
+                    next_emit = t_s + step
+                    rgb = frame.to_ndarray(format="rgb24")
+                    yield Frame(t_ms=int(round(t_s * 1000)),
+                                rgb=_downscale_long_edge(rgb, self.max_long_edge_px))
 
     def _frames_cv(self):
         cv2 = require("cv2", feature="ClipSource video decode (no PyAV)")
@@ -168,23 +208,36 @@ class ClipSource:
             yield from self._audio_fallback()
 
     def _audio_av(self, av):
-        chunk_samples = int(AUDIO_SAMPLE_RATE * AUDIO_CHUNK_MS / 1000)  # 320
+        def _emit(rs, chunker):
+            samples = rs.to_ndarray().reshape(-1).astype(np.int16)
+            start_s = (
+                float(rs.pts * rs.time_base)
+                if rs.pts is not None and rs.time_base is not None
+                else None
+            )
+            return chunker.push(samples, start_s)
+
         with av.open(str(self.path)) as container:
             if not container.streams.audio:
                 return
             stream = container.streams.audio[0]
             resampler = av.AudioResampler(format="s16", layout="mono", rate=AUDIO_SAMPLE_RATE)
-            buf = np.empty(0, dtype=np.int16)
-            emitted = 0
-            for frame in container.decode(stream):
-                for rs in resampler.resample(frame):
-                    samples = rs.to_ndarray().reshape(-1).astype(np.int16)
-                    buf = np.concatenate([buf, samples])
-                    while buf.size >= chunk_samples:
-                        pcm, buf = buf[:chunk_samples], buf[chunk_samples:]
-                        t_ms = int(round(emitted / AUDIO_SAMPLE_RATE * 1000))
-                        emitted += chunk_samples
-                        yield AudioChunk(t_ms=t_ms, pcm=pcm.copy())
+            chunker = _AudioChunker()
+            # demux packet-by-packet: a single corrupt/truncated packet (common as the FINAL
+            # packet of a real recording) must not lose the whole audio track — skip it and go on.
+            for packet in container.demux(stream):
+                try:
+                    decoded = list(packet.decode())
+                except av.error.FFmpegError:
+                    self.audio_decode_errors += 1
+                    continue
+                for frame in decoded:
+                    for rs in resampler.resample(frame):
+                        yield from _emit(rs, chunker)
+            # AudioResampler can buffer samples internally. Flush them so the measured
+            # final audio timestamp is not shortened by decoder/resampler latency.
+            for rs in resampler.resample(None):
+                yield from _emit(rs, chunker)
 
     def _audio_fallback(self):
         sf = require("soundfile", feature="ClipSource audio decode (no PyAV)")

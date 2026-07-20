@@ -74,12 +74,23 @@ def build_detectors(cfg: Config) -> list[object]:
     if d.get("voice_activity", {}).get("enabled"):
         c = d["voice_activity"]
         built["voice_activity"] = VoiceActivityDetector(
-            cadence=c["cadence"], aggressiveness=c.get("aggressiveness", 2),
-            frame_ms=c.get("frame_ms", 30), fallback=c.get("fallback", "energy"))
+            cadence=c["cadence"],
+            aggressiveness=c.get("aggressiveness", 2),
+            frame_ms=c.get("frame_ms", 30),
+            fallback=c.get("fallback", "energy"),
+            # .get with defaults so a config predating these keys still builds (§1.6 re-runnable)
+            fallback_norm_percentiles=tuple(c.get("fallback_norm_percentiles", (5, 95))),
+            fallback_threshold=c.get("fallback_threshold", 0.5),
+            fallback_min_dbfs=c.get("fallback_min_dbfs", -45.0),
+            silence_floor_dbfs=c.get("silence_floor_dbfs", -120.0),
+        )
     if d.get("audio_energy", {}).get("enabled"):
         c = d["audio_energy"]
         built["audio_energy"] = AudioEnergyDetector(
-            cadence=c["cadence"], norm_percentiles=tuple(c["norm_percentiles"]))
+            cadence=c["cadence"],
+            norm_percentiles=tuple(c.get("norm_percentiles", (5, 95))),
+            silence_floor_dbfs=c.get("silence_floor_dbfs", -120.0),
+        )
     if d.get("dwell", {}).get("enabled"):
         c = d["dwell"]
         built["dwell"] = DwellDetector(
@@ -146,6 +157,7 @@ def run_detectors(source, cfg: Config) -> DetectResult:
     face_det = by_name.get("face_presence")
     notes: dict[str, object] = {
         "vad_backend": getattr(by_name.get("voice_activity"), "last_backend", "n/a"),
+        "vad_fallback_reason": getattr(by_name.get("voice_activity"), "fallback_reason", None),
         "motion_backend": getattr(by_name.get("motion"), "last_backend", "n/a"),
         "text_backend": getattr(text_det, "last_backend", "n/a"),
         "text_backend_reason": getattr(text_det, "fallback_reason", None),
@@ -157,6 +169,9 @@ def run_detectors(source, cfg: Config) -> DetectResult:
         "n_chunks": len(chunks),
         "native_fps": native_fps,
         "effective_fps": round(fps, 2),
+        # corrupt packets skipped during decode (0 = clean); never silently lose media (§1)
+        "video_decode_errors": getattr(source, "video_decode_errors", 0),
+        "audio_decode_errors": getattr(source, "audio_decode_errors", 0),
     }
     return DetectResult(windows=out, detector_names=names, fps=fps,
                         duration_s=source.duration_s(), timings_s=timings, n_evals=n_evals, notes=notes)
