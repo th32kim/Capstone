@@ -448,6 +448,20 @@ def eval_latency(config: str = typer.Option("default")):
                            "retrieval_NFS2": latency.retrieval_latency()}, indent=2, default=str))
 
 
+@eval_app.command("text-backend")
+def eval_text_backend(clip: str, config: str = typer.Option("default"),
+                      fps: float = typer.Option(None, "--fps"),
+                      threshold: float = typer.Option(None, "--threshold",
+                                                       help="default: gating.theta_on")):
+    """EAST vs MSER precision/recall on data/labels/<clip>_text.csv (V2-2)."""
+    from .eval import text_backend
+
+    cfg = load_config(config)
+    src, _ = resolve_source(clip, cfg, fps=fps)
+    typer.echo(json.dumps(text_backend.benchmark(src, cfg, clip, threshold=threshold),
+                          indent=2, default=str))
+
+
 @eval_app.command("index")
 def eval_index(config: str = typer.Option("default")):
     from .eval import index_bench

@@ -282,6 +282,47 @@ lies about what the code will do.
 precision, note that the corpus run in this repo used the MSER fallback (no EAST weights present)
 unless `east_model_path` is explicitly populated.
 
+**Addendum (V2-2, 2026-07-21) — EAST provisioned, benchmarked, default confirmed.**
+
+**Owner to sign off:** whoever owns FS8/D4 precision reporting.
+
+The frozen EAST `.pb` (96.7 MB) is now fetched by `make setup` from
+`github.com/oyyd/frozen_east_text_detection.pb` — the same mirror most OpenCV/pyimagesearch EAST
+tutorials reference. **This is a community re-host, not an OpenCV-official artifact** — there is
+still no canonical trusted URL, so this is a judgment call made explicitly (not the silent
+fallback the original D-8 text was warning against). Loaded and sanity-checked via
+`cv2.dnn.readNet()`; verify the SHA yourself if provenance matters for your deployment.
+
+**Measured** (`hindsight eval text-backend plane_1`, `hindsight/eval/text_backend.py`): 161
+windows on `plane_1` (real 4K aircraft-cabin POV, `sample-videos/`), each hand-verified for
+on-screen text presence. Ground truth provenance: auto-derived from whether Tesseract found any
+text on the frame (an independent third algorithm — neither EAST nor MSER), then visually
+spot-checked by a human across the full positive/negative/borderline range (plain window view,
+dense English menu text, dense Korean menu text, small blurry magazine text, a title caption) —
+all confirmed correct before being trusted. Swept across `eval.sweep.theta_on`-adjacent
+thresholds:
+
+| threshold | EAST P / R (F1) | MSER P / R (F1) |
+|---|---|---|
+| 0.30 | 0.727 / 0.976 (0.833) | 0.522 / 1.000 (0.686) |
+| 0.40 | 0.908 / 0.841 (**0.873**) | 0.543 / 1.000 (0.704) |
+| 0.50 | 0.924 / 0.744 (0.825) | 0.570 / 0.988 (0.722) |
+| 0.58 (θ_on) | 0.917 / 0.671 (0.774) | 0.623 / 0.988 (0.773) |
+
+**EAST wins on F1 at every swept threshold** (tied only at θ_on=0.58). MSER's classical
+count/area heuristic saturates near-positive on non-text texture (cabin interior fabric, seat
+patterns), so its precision floor stays low (0.52–0.62) even where its recall is excellent — it
+does not discriminate well. EAST's trained detector gives a materially better precision/recall
+trade at every operating point, at the cost of the 96.7 MB model file and one `cv2.dnn.forward()`
+per window (already budgeted in M2's compute-cost measurement).
+
+**Default confirmed:** `configs/default.yaml`'s `detectors.text_presence.backend: east` (already
+the configured value — the model file, not the config, was the missing piece) is now a real,
+measured choice, not a no-op that silently ran MSER. Recommended operating threshold **0.40**, not
+the gate's θ_on=0.58 default, if `text_presence` is ever driven as its own binary gate rather than
+fused; as a fusion input at weight 0.15 (`configs/default.yaml`), the raw scores already carry the
+better-discriminated signal regardless of threshold.
+
 ---
 
 ## D-9 — Face detector backend: forced substitution to YuNet  ★ minor, backend-only
@@ -334,6 +375,41 @@ regressed there. The lesson is the D-1 lesson restated: **adding a detector requ
 operating point, not just enabling the backend.** Recommend P2 fold "face available" and "real VAD"
 into the joint (θ_on, θ_off, weights) sweep before either is relied on. Until then, enabling these
 backends changes *where* the gate fires, not *whether* it is correct.
+
+**Addendum (V2-3, 2026-07-21) — reproduced on real footage; mechanism now exact, not just measured.**
+
+**Owner to sign off:** P2 (gate/fusion), **and whoever owns INT-2** — the ticket lists V2-3 as
+"joint with INT-2," but no INT-2 reference exists anywhere in this repo (docs, code, or
+`data/manifest.yaml`); it appears to be an external tracker item. Flagging here the same way this
+entry already flags P2, rather than guessing at scope this repo has no visibility into.
+
+The original finding above was measured on the synthetic `demo` source before this dev environment
+had cv2/YuNet installed. Re-measured on real footage now that the model is provisioned (`make
+setup` fetches `models/face/face_detection_yunet_2023mar.onnx` from opencv_zoo — unchanged from
+D-9's original sourcing, no new provenance question there):
+
+| clip | content | config | fused salience max | segments | reduction |
+|---|---|---|---|---|---|
+| `sample2.mp4` | screen recording of a TV show, well-lit faces most of its 120 s (**not genuine POV** — the only locally available footage with clear, unambiguous faces long enough to clear the gate's 6.5 s structural floor; `sample-videos/face_1.mov`, the clip actually registered for face testing, is not present on this checkout) | face masked off (default) | 0.726 | 1 | 0.934 |
+| `sample2.mp4` | (same clip) | face on (`configs/faces.yaml`, YuNet) | 0.595 | **0** | 1.000 |
+| `plane_2.MP4` | real 4K cabin-interior POV, verified **zero** faces in any of 81 scored windows (max face score 0.0 — a clean true-negative control) | face masked off (default) | 0.740 | 1 | 0.086 |
+| `plane_2.MP4` | (same clip) | face on (YuNet, scoring genuine 0.0 throughout) | 0.592 | **0** | 1.000 |
+
+Both clips reproduce the exact **1 segment → 0** collapse from the synthetic measurement, at
+closely matching magnitude (Δ≈0.13–0.15, vs. the synthetic run's 0.725→0.580). `plane_2`'s
+face-less case makes the mechanism exact rather than approximate: with face scoring a genuine 0.0
+throughout, `fused_with_face = fused_without_face × 0.80` **to three significant figures**
+(0.740 × 0.80 = 0.592, matching the measured 0.592 exactly) — because masking face off
+renormalises the other five detectors' weights up to sum to 1.0 (divide by 0.80), while enabling
+face (even at a true 0.0) removes that renormalisation boost. **This is not a face-detection
+accuracy problem; it is arithmetic.** Enabling any detector without re-sweeping θ_on will produce
+this same ~20% fused-salience haircut on footage where that detector mostly reads 0, purely from
+the renormalisation-divisor change — face is simply the first one measured.
+
+**Recommendation confirmed: opt-in (`configs/faces.yaml`), not default-on**, until P2 folds face
+into the joint (θ_on, θ_off, weights) sweep — the original recommendation stands, now backed by
+real footage in two different content regimes (faces present, faces genuinely absent) rather than
+one synthetic source.
 
 ---
 

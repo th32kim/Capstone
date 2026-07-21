@@ -62,13 +62,20 @@ detectors:
   text_presence:
     enabled: true
     cadence: 48                 # [REPORT] ~0.5 Hz @ 24 fps
-    backend: east               # east | mser_swt. Decided ONCE per run (the two score formulas
-                                # are incommensurable; a run never mixes them).
+    backend: east               # [TUNE, measured V2-2] east | mser_swt. Decided ONCE per run (the
+                                # two score formulas are incommensurable; a run never mixes them).
+                                # MEASURED on plane_1 (161 hand-verified windows, DESIGN_DELTAS.md
+                                # D-8 addendum): EAST beats MSER on F1 at every swept threshold
+                                # (e.g. P=0.92/R=0.67 vs P=0.62/R=0.99 at theta_on=0.58; P=0.91/
+                                # R=0.84 vs P=0.54/R=1.00 at 0.40) -- MSER's classical heuristic
+                                # saturates near-positive on non-text texture (cabin interior,
+                                # fabric), so its precision floor is low at any usable recall.
     min_confidence: 0.5         # [TUNE]
-    east_model_path: models/east/frozen_east_text_detection.pb   # [ASSUMED] not bundled (no
-      # canonical trusted download URL to hardcode). Relative paths resolve against the REPO
-      # ROOT, not the CWD. If missing, honestly falls back to MSER and `detect` prints the
-      # actual reason (notes: text_backend / text_backend_reason).
+    east_model_path: models/east/frozen_east_text_detection.pb   # fetched by `make setup` from a
+      # COMMUNITY MIRROR (github.com/oyyd/frozen_east_text_detection.pb) -- there is no canonical
+      # OpenCV-official URL to hardcode (see DESIGN_DELTAS.md D-8 addendum). Relative paths
+      # resolve against the REPO ROOT, not the CWD. If missing, honestly falls back to MSER and
+      # `detect` prints the actual reason (notes: text_backend / text_backend_reason).
     east:
       input_size: 320           # [ASSUMED] EAST network input edge; must be a multiple of 32
       nms_iou: 0.4              # [TUNE] NMSBoxes overlap threshold

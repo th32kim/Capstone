@@ -8,6 +8,14 @@ setup:
 	@test -f models/face/face_detection_yunet_2023mar.onnx || \
 	  curl -fsSL -o models/face/face_detection_yunet_2023mar.onnx \
 	  https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+	@mkdir -p models/east
+# EAST (V2-2): a community re-host of the original release asset, not an OpenCV-official
+# artifact -- there is no canonical trusted URL for it (docs/DESIGN_DELTAS.md D-8/D-9-addendum).
+# Same mirror most OpenCV/pyimagesearch EAST tutorials use; loaded + sanity-checked via
+# cv2.dnn.readNet() during V2-2. Verify the SHA yourself if provenance matters for your deployment.
+	@test -f models/east/frozen_east_text_detection.pb || \
+	  curl -fsSL -o models/east/frozen_east_text_detection.pb \
+	  https://github.com/oyyd/frozen_east_text_detection.pb/raw/master/frozen_east_text_detection.pb
 	@command -v tesseract >/dev/null || echo "WARNING: tesseract not found (FS8/OCR will be disabled)"
 	@echo "setup ok"
 
